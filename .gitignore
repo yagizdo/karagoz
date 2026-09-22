@@ -1,10 +1,16 @@
 node_modules/
 dist/
 *.tsbuildinfo
+*.tgz
 *.log
 .DS_Store
 .env
 .env.*
+
+# Editor and local tool state.
+.idea/
+.vscode/
+.codegraph/
 
 # Local working notes. Design journal, progress tracking, research.
 # Not part of the package.
