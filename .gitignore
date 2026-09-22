@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.log
+.DS_Store
+.env
+.env.*
+
+# Local working notes. Design journal, progress tracking, research.
+# Not part of the package.
+docs/local/
