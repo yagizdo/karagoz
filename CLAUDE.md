@@ -45,3 +45,5 @@ Importing the package root pulls the HTTP transport and OAuth tree into the bund
 ## Conventions
 
 Code, comments, commit messages and public documentation are in English. Commit messages follow Conventional Commits.
+
+Before calling a change done, run `npm run typecheck` and `npm run lint`; both must exit 0. `npm run format` fixes what the format check reports.

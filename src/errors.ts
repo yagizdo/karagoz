@@ -1,0 +1,12 @@
+// The closed set of error codes (K5). Anything thrown without one surfaces as INTERNAL.
+export type ErrorCode =
+  'NO_COMMAND' | 'UNKNOWN_COMMAND' | 'INVALID_ARGS' | 'ADB_NOT_FOUND' | 'ADB_TIMEOUT' | 'ADB_FAILED' | 'INTERNAL';
+
+export class KaragozError extends Error {
+  constructor(
+    readonly code: ErrorCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
