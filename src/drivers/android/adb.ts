@@ -11,6 +11,10 @@ const run = promisify(execFile);
 // A cold server start takes ~3.2 s: the server waits up to 3 s for its device scan.
 const TIMEOUT_MS = 10_000;
 
+// Above the 33 MB of uncompressed RGBA for a 3840x2160 display. Node's 1 MB default failed a 1.37 MB
+// screenshot PNG with ERR_CHILD_PROCESS_STDIO_MAXBUFFER (measured).
+const MAX_BUFFER = 64 * 1024 * 1024;
+
 const exe = process.platform === 'win32' ? 'adb.exe' : 'adb';
 
 const INSTALL: Record<string, string> = {
@@ -51,13 +55,19 @@ function onPath(): string | undefined {
 let resolved: string | undefined;
 
 // Runs adb and returns its stdout. adb's own stderr (e.g. "* daemon started successfully") is passed through.
-export async function adb(args: string[]): Promise<string> {
+// The bytes form exists because a screenshot PNG must not pass through a text decode; adb() below decodes the
+// same result, so both share this one candidate loop, timeout and error mapping.
+export async function adbBytes(args: string[]): Promise<Buffer> {
   const tried = resolved ? [resolved] : candidates();
   for (const candidate of tried) {
     const bin = candidate === 'adb' ? onPath() : candidate;
     if (!bin) continue;
     try {
-      const { stdout, stderr } = await run(bin, args, { timeout: TIMEOUT_MS });
+      const { stdout, stderr } = await run(bin, args, {
+        timeout: TIMEOUT_MS,
+        encoding: 'buffer',
+        maxBuffer: MAX_BUFFER,
+      });
       resolved = bin;
       process.stderr.write(stderr);
       return stdout;
@@ -71,7 +81,7 @@ export async function adb(args: string[]): Promise<string> {
           `adb did not answer within ${TIMEOUT_MS / 1000}s. Another process may hold the adb server port, or the server is stuck; try \`adb kill-server\`.`,
         );
       }
-      const stderr = 'stderr' in err && typeof err.stderr === 'string' ? err.stderr.trim() : '';
+      const stderr = 'stderr' in err && Buffer.isBuffer(err.stderr) ? err.stderr.toString('utf8').trim() : '';
       throw new KaragozError('ADB_FAILED', stderr || err.message);
     }
   }
@@ -84,4 +94,8 @@ export async function adb(args: string[]): Promise<string> {
     'ADB_NOT_FOUND',
     `adb not found (tried ${where}). Install platform-tools (${install}) or set ANDROID_HOME to your Android SDK.`,
   );
+}
+
+export async function adb(args: string[]): Promise<string> {
+  return (await adbBytes(args)).toString('utf8');
 }
