@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
+import pkg from '../package.json' with { type: 'json' };
 import { listDevices } from './drivers/android/devices.js';
 import { KaragozError } from './errors.js';
 
@@ -11,9 +11,7 @@ const commands: Record<string, () => Promise<unknown>> = {
 try {
   const { values, positionals } = parseArgs({ options: { version: { type: 'boolean' } }, allowPositionals: true });
   if (values.version) {
-    // Resolved from dist/cli.js, where the bundle lives.
-    const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-    process.stdout.write(`${version}\n`);
+    process.stdout.write(`${pkg.version}\n`);
   } else {
     const [name, ...rest] = positionals;
     if (!name) throw new KaragozError('NO_COMMAND', `no command given. Commands: ${Object.keys(commands).join(', ')}`);
@@ -24,7 +22,8 @@ try {
     process.stdout.write(`${JSON.stringify(await command())}\n`);
   }
 } catch (err) {
-  const { message, code: raw } = err as Error & { code?: unknown };
+  const message = err instanceof Error ? err.message : String(err);
+  const raw = err instanceof Error && 'code' in err ? err.code : undefined;
   const code =
     err instanceof KaragozError
       ? err.code

@@ -56,17 +56,18 @@ export async function adb(args: string[]): Promise<string> {
       resolved = bin;
       process.stderr.write(stderr);
       return stdout;
-    } catch (e) {
-      const err = e as { code?: unknown; killed?: boolean; stderr?: string; message: string };
-      if (err.code === 'ENOENT') continue;
+    } catch (err) {
+      if (!(err instanceof Error)) throw err;
+      if ('code' in err && err.code === 'ENOENT') continue;
       resolved = bin;
-      if (err.killed) {
+      if ('killed' in err && err.killed) {
         throw new KaragozError(
           'ADB_TIMEOUT',
           `adb did not answer within ${TIMEOUT_MS / 1000}s. Another process may hold the adb server port, or the server is stuck; try \`adb kill-server\`.`,
         );
       }
-      throw new KaragozError('ADB_FAILED', err.stderr?.trim() || err.message);
+      const stderr = 'stderr' in err && typeof err.stderr === 'string' ? err.stderr.trim() : '';
+      throw new KaragozError('ADB_FAILED', stderr || err.message);
     }
   }
   const where = tried.map((bin) => (bin === 'adb' ? 'PATH' : bin)).join(', ');
