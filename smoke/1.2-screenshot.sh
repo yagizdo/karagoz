@@ -1,5 +1,6 @@
 #!/bin/sh
-# Step 1.2a: `screenshot` captures a running emulator by serial or AVD name as a whole, full-resolution PNG;
+# Step 1.2: `screenshot` captures a running emulator by serial or AVD name as a whole, full-resolution PNG, and
+# every capture carries the K6 metadata read with it (logical size, scale, safe area, rotation);
 # an unknown target and an option the command does not declare fail with the JSON envelope.
 # Precondition: an emulator is running (emulator -avd <name>). Nothing here boots, stops, rotates or restarts
 # anything, and the adb server on the default port is never touched.
@@ -53,6 +54,29 @@ path=$(printf '%s' "$out" | field path) || { echo "FAIL: screenshot by serial di
 [ "$(printf '%s' "$out" | field device)" = "$id" ] || { echo "FAIL: device is not $id: $out"; exit 1; }
 png_ok "$path" "$(printf '%s' "$out" | field pixels.width)" "$(printf '%s' "$out" | field pixels.height)" \
   || { echo "FAIL: $path is not a whole PNG of the reported size: $out"; exit 1; }
+
+# 3b. The K6 metadata of that capture, against the density adb reports (the override when one is set).
+density=$(adb -s "$id" shell wm density) || { echo "FAIL: adb -s $id shell wm density failed (is adb on PATH?)"; exit 1; }
+why=$(printf '%s' "$out" | node -e '
+  const out = require("fs").readFileSync(0, "utf8").trimEnd();
+  const fail = (reason) => { console.log(reason); process.exit(1); };
+  if (out.includes("\n")) fail("stdout is not one line");
+  const { pixels, logical, scale, safeArea, rotation } = JSON.parse(out);
+  if (!logical || scale === undefined || !safeArea || rotation === undefined) fail("logical, scale, safeArea or rotation missing");
+  const density = (name) => process.argv[1].match(new RegExp(`${name} density: (\\d+)`))?.[1];
+  const dpi = density("Override") ?? density("Physical");
+  if (dpi === undefined) fail(`no density in: ${process.argv[1]}`);
+  if (scale !== Number(dpi) / 160) fail(`scale is not ${dpi}/160`);
+  for (const axis of ["width", "height"]) {
+    if (Math.abs(logical[axis] * scale - pixels[axis]) >= 1e-6) fail(`logical.${axis} * scale is not pixels.${axis}`);
+  }
+  if (![0, 90, 180, 270].includes(rotation)) fail("rotation is not 0, 90, 180 or 270");
+  if (Object.keys(safeArea).join() !== "top,right,bottom,left") fail("safeArea keys are not top, right, bottom, left");
+  const limit = { top: pixels.height, bottom: pixels.height, left: pixels.width, right: pixels.width };
+  for (const [edge, value] of Object.entries(safeArea)) {
+    if (!Number.isInteger(value) || value < 0 || value >= limit[edge]) fail(`safeArea.${edge} is not an integer in [0, ${limit[edge]})`);
+  }
+' "$density") || { echo "FAIL: $why: $out"; exit 1; }
 
 # 4. By AVD name, to the default path. The path is kept before any check on the file, so the trap removes it.
 res=$(node dist/cli.js screenshot --device "$name") || { echo "FAIL: screenshot by AVD name exited non-zero: $res"; exit 1; }
