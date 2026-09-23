@@ -1,6 +1,7 @@
 #!/bin/sh
 # Step 1.2: `screenshot` captures a running emulator by serial or AVD name as a whole, full-resolution PNG, and
 # every capture carries the K6 metadata read with it (logical size, scale, safe area, rotation);
+# the default file is private (0600) and a symlink planted at the default directory is refused;
 # an unknown target and an option the command does not declare fail with the JSON envelope.
 # Precondition: an emulator is running (emulator -avd <name>). Nothing here boots, stops, rotates or restarts
 # anything, and the adb server on the default port is never touched.
@@ -86,6 +87,18 @@ dir="$(node -p 'require("os").tmpdir()')/karagoz/"
 case $shot in "$dir$id"-*.png) ;; *) echo "FAIL: default path '$shot' is not $dir$id-<time>.png"; exit 1 ;; esac
 png_ok "$shot" "$(printf '%s' "$res" | field pixels.width)" "$(printf '%s' "$res" | field pixels.height)" \
   || { echo "FAIL: $shot is not a whole PNG of the reported size: $res"; exit 1; }
+mode=$(node -p '(require("fs").statSync(process.argv[1]).mode & 0o777).toString(8)' "$shot")
+[ "$mode" = 600 ] || { echo "FAIL: default file $shot has mode $mode, expected 600"; exit 1; }
+
+# 4b. A symlink at <tmpdir>/karagoz is refused and nothing is written through it. TMPDIR moves os.tmpdir() into
+# $tmp, so the real temp directory is not touched.
+mkdir "$tmp/t" "$tmp/elsewhere"
+ln -s "$tmp/elsewhere" "$tmp/t/karagoz"
+if planted=$(TMPDIR="$tmp/t" node dist/cli.js screenshot --device "$id" 2>/dev/null); then
+  echo "FAIL: screenshot through a symlinked default directory exited 0"; exit 1
+fi
+[ "$(printf '%s' "$planted" | code_of)" = WRITE_FAILED ] || { echo "FAIL: expected WRITE_FAILED, got: $planted"; exit 1; }
+[ -z "$(ls -A "$tmp/elsewhere")" ] || { echo "FAIL: a file was written through the symlink: $(ls -A "$tmp/elsewhere")"; exit 1; }
 
 # 5. An unknown target.
 if miss=$(node dist/cli.js screenshot --device nope 2>/dev/null); then echo "FAIL: unknown device exited 0"; exit 1; fi

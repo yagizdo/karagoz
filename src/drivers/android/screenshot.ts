@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { KaragozError } from '../../errors.js';
@@ -112,8 +112,22 @@ export async function screenshot(device: string | undefined, out: string | undef
   const stamp = new Date().toISOString().replace(/[-:.]/g, '');
   const path = out === undefined ? join(tmpdir(), 'karagoz', `${safeId}-${stamp}.png`) : resolve(out);
   try {
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, png);
+    const dir = dirname(path);
+    if (out === undefined) {
+      // On Linux tmpdir() is the shared /tmp: another user could create karagoz/ first, or plant a symlink at the
+      // predictable file name. The directory must be the caller's own, and the write refuses anything already at
+      // the path. --out is left alone, the caller picked it.
+      // ponytail: two captures of one device in the same millisecond collide, and the second gets WRITE_FAILED.
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      const info = await lstat(dir);
+      if (!info.isDirectory() || (process.getuid && info.uid !== process.getuid())) {
+        throw new Error(`${dir} is not a directory owned by the current user; pass --out`);
+      }
+      await writeFile(path, png, { flag: 'wx', mode: 0o600 });
+    } else {
+      await mkdir(dir, { recursive: true });
+      await writeFile(path, png);
+    }
   } catch (err) {
     if (!(err instanceof Error)) throw err;
     throw new KaragozError('WRITE_FAILED', err.message);
