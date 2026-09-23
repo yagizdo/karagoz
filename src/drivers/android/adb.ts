@@ -27,7 +27,12 @@ function candidates(): string[] {
     linux: join(homedir(), 'Android', 'Sdk'),
     win32: local && join(local, 'Android', 'Sdk'),
   };
-  return [...at(process.env.ANDROID_HOME), ...at(process.env.ANDROID_SDK_ROOT), 'adb', ...at(defaultSdk[process.platform])];
+  return [
+    ...at(process.env.ANDROID_HOME),
+    ...at(process.env.ANDROID_SDK_ROOT),
+    'adb',
+    ...at(defaultSdk[process.platform]),
+  ];
 }
 
 // The 'adb' candidate. On Windows libuv looks a bare name up in the current directory before PATH,
