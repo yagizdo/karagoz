@@ -17,7 +17,8 @@ try {
   } else {
     const [name, ...rest] = positionals;
     if (!name) throw new KaragozError('NO_COMMAND', `no command given. Commands: ${Object.keys(commands).join(', ')}`);
-    const command = commands[name];
+    // hasOwn: a plain object also answers 'constructor', 'toString' and the rest of Object.prototype.
+    const command = Object.hasOwn(commands, name) ? commands[name] : undefined;
     if (!command) throw new KaragozError('UNKNOWN_COMMAND', `unknown command '${name}'`);
     if (rest.length) throw new KaragozError('INVALID_ARGS', `unexpected argument '${rest[0]}'`);
     process.stdout.write(`${JSON.stringify(await command())}\n`);

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
 import { KaragozError } from '../../errors.js';
 
@@ -29,12 +30,27 @@ function candidates(): string[] {
   return [...at(process.env.ANDROID_HOME), ...at(process.env.ANDROID_SDK_ROOT), 'adb', ...at(defaultSdk[process.platform])];
 }
 
+// The 'adb' candidate. On Windows libuv looks a bare name up in the current directory before PATH,
+// so an adb.exe in the directory karagoz runs from would win. PATH is walked here instead, absolute
+// entries only: libuv resolves relative ones against the current directory too.
+function onPath(): string | undefined {
+  if (process.platform !== 'win32') return 'adb';
+  return (process.env.PATH ?? '')
+    .split(delimiter)
+    .map((dir) => dir.replaceAll('"', ''))
+    .filter((dir) => isAbsolute(dir))
+    .map((dir) => join(dir, exe))
+    .find((bin) => existsSync(bin));
+}
+
 let resolved: string | undefined;
 
 // Runs adb and returns its stdout. adb's own stderr (e.g. "* daemon started successfully") is passed through.
 export async function adb(args: string[]): Promise<string> {
   const tried = resolved ? [resolved] : candidates();
-  for (const bin of tried) {
+  for (const candidate of tried) {
+    const bin = candidate === 'adb' ? onPath() : candidate;
+    if (!bin) continue;
     try {
       const { stdout, stderr } = await run(bin, args, { timeout: TIMEOUT_MS });
       resolved = bin;

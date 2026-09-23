@@ -9,8 +9,13 @@ npm run --silent build
 node_bin=$(command -v node)
 tmp=$(mktemp -d)
 listener=
-trap 'kill $listener 2>/dev/null; wait $listener 2>/dev/null; rm -rf "$tmp"' EXIT
-code_of() { node -e 'try { console.log(JSON.parse(require("fs").readFileSync(0, "utf8")).error.code) } catch { console.log("not-json") }'; }
+# set +e: errexit stays on inside the trap, and a failing kill or wait would skip the rm.
+trap 'set +e; kill $listener 2>/dev/null; wait $listener 2>/dev/null; rm -rf "$tmp"' EXIT
+# Prints .error.code, or not-json. The envelope must be exactly one line (K5).
+code_of() { node -e '
+  const out = require("fs").readFileSync(0, "utf8").trimEnd();
+  try { console.log(out.includes("\n") ? "not-one-line" : JSON.parse(out).error.code) } catch { console.log("not-json") }
+'; }
 
 # 1. A ready emulator, named.
 out=$(node dist/cli.js devices) || { echo "FAIL: devices exited non-zero: $out"; exit 1; }
