@@ -3,6 +3,7 @@ import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 import pkg from '../package.json' with { type: 'json' };
 import { listDevices } from './drivers/android/devices.js';
 import { screenshot } from './drivers/android/screenshot.js';
+import { uiTree } from './drivers/android/ui-tree.js';
 import { KaragozError } from './errors.js';
 
 // Every command option takes a value, so a command receives its options as strings.
@@ -17,6 +18,7 @@ const commands: Record<string, Command> = {
     options: { device: { type: 'string' }, out: { type: 'string' } },
     run: ({ device, out }) => screenshot(device, out),
   },
+  'ui-tree': { options: { device: { type: 'string' } }, run: ({ device }) => uiTree(device) },
 };
 
 try {

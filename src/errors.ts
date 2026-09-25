@@ -11,6 +11,7 @@ export type ErrorCode =
   | 'DEVICE_AMBIGUOUS'
   | 'DEVICE_NOT_READY'
   | 'CAPTURE_FAILED'
+  | 'AUTOMATION_BUSY'
   | 'WRITE_FAILED'
   | 'INTERNAL';
 
