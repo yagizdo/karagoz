@@ -9,6 +9,7 @@ const run = promisify(execFile);
 
 // adb blocks forever when something holds the server port and never answers.
 // A cold server start takes ~3.2 s: the server waits up to 3 s for its device scan.
+// The default for every call; the uiautomator dump passes a longer one (K19 note).
 const TIMEOUT_MS = 10_000;
 
 // Above the 33 MB of uncompressed RGBA for a 3840x2160 display. Node's 1 MB default failed a 1.37 MB
@@ -57,14 +58,14 @@ let resolved: string | undefined;
 // Runs adb and returns its stdout. adb's own stderr (e.g. "* daemon started successfully") is passed through.
 // The bytes form exists because a screenshot PNG must not pass through a text decode; adb() below decodes the
 // same result, so both share this one candidate loop, timeout and error mapping.
-export async function adbBytes(args: string[]): Promise<Buffer> {
+export async function adbBytes(args: string[], timeout = TIMEOUT_MS): Promise<Buffer> {
   const tried = resolved ? [resolved] : candidates();
   for (const candidate of tried) {
     const bin = candidate === 'adb' ? onPath() : candidate;
     if (!bin) continue;
     try {
       const { stdout, stderr } = await run(bin, args, {
-        timeout: TIMEOUT_MS,
+        timeout,
         encoding: 'buffer',
         maxBuffer: MAX_BUFFER,
       });
@@ -78,7 +79,7 @@ export async function adbBytes(args: string[]): Promise<Buffer> {
       if ('killed' in err && err.killed) {
         throw new KaragozError(
           'ADB_TIMEOUT',
-          `adb did not answer within ${TIMEOUT_MS / 1000}s. Another process may hold the adb server port, or the server is stuck; try \`adb kill-server\`.`,
+          `adb did not answer within ${timeout / 1000}s. Another process may hold the adb server port, or the server is stuck; try \`adb kill-server\`.`,
         );
       }
       const stderr = 'stderr' in err && Buffer.isBuffer(err.stderr) ? err.stderr.toString('utf8').trim() : '';
@@ -96,6 +97,6 @@ export async function adbBytes(args: string[]): Promise<Buffer> {
   );
 }
 
-export async function adb(args: string[]): Promise<string> {
-  return (await adbBytes(args)).toString('utf8');
+export async function adb(args: string[], timeout = TIMEOUT_MS): Promise<string> {
+  return (await adbBytes(args, timeout)).toString('utf8');
 }

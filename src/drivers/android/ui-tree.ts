@@ -1,0 +1,187 @@
+import { KaragozError } from '../../errors.js';
+import { adb } from './adb.js';
+import { resolveTarget } from './devices.js';
+
+// uiautomator's own idle failure arrives after 11.3-12.2 s (measured), and a client killed at 10 s leaves the device
+// process holding the one UiAutomation slot for ~2 s more (K19 note).
+const DUMP_TIMEOUT_MS = 20_000;
+
+const IDLE = 'ERROR: could not get idle state.';
+const NULL_ROOT = 'ERROR: null root node returned by UiTestAutomationBridge.';
+const END = '</hierarchy>';
+
+// Output order is the K24 field order, since JSON.stringify keeps insertion order. Fields are the dump's attribute
+// names in camelCase; index, drawing-order and NAF are dropped.
+const TEXTS = ['text', 'content-desc', 'resource-id', 'hint'];
+const FLAGS = [
+  'checkable',
+  'checked',
+  'clickable',
+  'long-clickable',
+  'focusable',
+  'focused',
+  'scrollable',
+  'selected',
+  'password',
+];
+const ENTITIES = new Map([
+  ['amp', '&'],
+  ['lt', '<'],
+  ['gt', '>'],
+  ['quot', '"'],
+  ['apos', "'"],
+]);
+
+// KXmlSerializer's grammar only (K13 note): elements, attributes in " or ' quotes, self-closing tags and whitespace
+// between tags. Anything else fails the match and throws.
+const TOKEN = /\s+|<(\/?)([\w-]+)((?:\s+[\w-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/y;
+const ATTR = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
+
+type Element = { name: string; attrs: Map<string, string>; children: Element[] };
+type UiNode = { [field: string]: string | boolean | number[] | UiNode[] };
+
+const camel = (name: string) => name.replace(/-(\w)/g, (_: string, letter: string) => letter.toUpperCase());
+
+// An emoji arrives as &#128512;. The trailing `|&` catches a bare & that starts no entity.
+function decode(value: string): string {
+  return value.replace(
+    /&(?:#x([0-9a-fA-F]+)|#(\d+)|(\w+));|&/g,
+    (whole: string, hex: string | undefined, dec: string | undefined, name: string | undefined) => {
+      if (hex !== undefined) return String.fromCodePoint(parseInt(hex, 16));
+      if (dec !== undefined) return String.fromCodePoint(Number(dec));
+      const named = name === undefined ? undefined : ENTITIES.get(name);
+      if (named === undefined) throw new Error(`unknown entity '${whole}'`);
+      return named;
+    },
+  );
+}
+
+function attributes(text: string): Map<string, string> {
+  const attrs = new Map<string, string>();
+  for (const match of text.matchAll(ATTR)) attrs.set(match[1] ?? '', decode(match[2] ?? match[3] ?? ''));
+  return attrs;
+}
+
+function parse(xml: string): Element {
+  const open: Element[] = [];
+  let root: Element | undefined;
+  TOKEN.lastIndex = 0;
+  while (TOKEN.lastIndex < xml.length) {
+    const at = TOKEN.lastIndex;
+    const match = TOKEN.exec(xml);
+    if (!match) throw new Error(`unexpected content at offset ${at}`);
+    const [, close, name, attrs, selfClose] = match;
+    if (name === undefined) continue;
+    const parent = open.at(-1);
+    if (close) {
+      if (attrs || selfClose || parent?.name !== name) throw new Error(`unexpected </${name}> at offset ${at}`);
+      open.pop();
+      continue;
+    }
+    if (!parent && root) throw new Error(`content after the root element at offset ${at}`);
+    const element: Element = { name, attrs: attributes(attrs ?? ''), children: [] };
+    if (parent) parent.children.push(element);
+    else root = element;
+    if (!selfClose) open.push(element);
+  }
+  if (!root || open.length) throw new Error(`<${open.at(-1)?.name ?? 'hierarchy'}> is not closed`);
+  return root;
+}
+
+// package appears on the root and wherever it differs from the parent's.
+function toNode(element: Element, parentPackage: string): UiNode {
+  if (element.name !== 'node') throw new Error(`unexpected <${element.name}>`);
+  const attr = (name: string) => element.attrs.get(name) ?? '';
+  const cls = element.attrs.get('class');
+  const box = /^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$/.exec(attr('bounds'));
+  if (cls === undefined || !box) throw new Error('a <node> without class or bounds');
+  const node: UiNode = { class: cls };
+  const pkg = attr('package');
+  if (pkg && pkg !== parentPackage) node.package = pkg;
+  for (const name of TEXTS) if (attr(name)) node[camel(name)] = attr(name);
+  for (const name of FLAGS) if (attr(name) === 'true') node[camel(name)] = true;
+  if (attr('enabled') === 'false') node.enabled = false;
+  node.bounds = box.slice(1).map(Number);
+  const children = element.children.map((child) => toNode(child, pkg));
+  if (children.length) node.children = children;
+  return node;
+}
+
+const emptyWebView = (element: Element): boolean =>
+  (element.attrs.get('class') === 'android.webkit.WebView' && !element.children.length) ||
+  element.children.some(emptyWebView);
+
+function tree(xml: string) {
+  const top = parse(xml);
+  const rotation = top.attrs.get('rotation') ?? '';
+  const [root, ...rest] = top.children;
+  if (top.name !== 'hierarchy' || !/^[0-3]$/.test(rotation) || !root || rest.length) {
+    throw new Error('expected <hierarchy rotation="0-3"> around exactly one <node>');
+  }
+  return { rotation: Number(rotation) * 90, root: toNode(root, ''), emptyWebView: emptyWebView(root) };
+}
+
+// exec-out exits 0 on every uiautomator failure, so the text is the only signal (K24).
+async function failure(id: string, out: string): Promise<KaragozError> {
+  if (out.includes(IDLE)) {
+    return new KaragozError(
+      'CAPTURE_FAILED',
+      `the screen did not go idle within uiautomator's 10 s wait (an animation or live content kept changing it); uiautomator: ${IDLE}`,
+    );
+  }
+  if (out.includes(NULL_ROOT)) {
+    return new KaragozError(
+      'CAPTURE_FAILED',
+      `no focused window to read (is the screen off, or is an app still starting?); uiautomator: ${NULL_ROOT}`,
+    );
+  }
+  try {
+    if ((await adb(['-s', id, 'shell', 'dumpsys', 'accessibility'])).includes('Ui Automation[')) {
+      return new KaragozError(
+        'AUTOMATION_BUSY',
+        'another UiAutomation client holds the device (Appium, Maestro, uiautomator events, or a second karagoz call); only one can be connected at a time',
+      );
+    }
+  } catch {
+    // The slot check only refines the failure. When it cannot run, the dump's own text below still reports it.
+  }
+  const text = out.trim();
+  if (text === 'Killed') {
+    return new KaragozError(
+      'CAPTURE_FAILED',
+      `uiautomator was killed while reading this screen; the cause is in adb -s ${id} logcat -b crash`,
+    );
+  }
+  return new KaragozError('CAPTURE_FAILED', text.slice(0, 300) || 'uiautomator returned no data');
+}
+
+// The tree is cut from the first <hierarchy to the last </hierarchy>: some vendors print a stack trace before the XML,
+// and uiautomator prints "UI hierchary dumped to: /dev/tty" right after it (K24).
+async function read(id: string) {
+  const out = await adb(['-s', id, 'exec-out', 'uiautomator', 'dump', '/dev/tty'], DUMP_TIMEOUT_MS);
+  const start = out.indexOf('<hierarchy');
+  const end = out.lastIndexOf(END);
+  if (start === -1 || end < start) throw await failure(id, out);
+  try {
+    return tree(out.slice(start, end + END.length));
+  } catch (err) {
+    if (!(err instanceof Error)) throw err;
+    throw new KaragozError('CAPTURE_FAILED', `cannot parse uiautomator output: ${err.message}`);
+  }
+}
+
+export async function uiTree(device: string | undefined) {
+  const id = await resolveTarget(device);
+  let result = await read(id);
+  // Chromium builds a WebView's tree only after the first request, so a fresh WebView reads empty once (5 of 5
+  // measured). One more read, never more (K24).
+  if (result.emptyWebView) {
+    try {
+      result = await read(id);
+    } catch (err) {
+      if (!(err instanceof KaragozError)) throw err;
+      // The first read was valid; the extra one may only improve it, never turn it into an error.
+    }
+  }
+  return { device: id, rotation: result.rotation, root: result.root };
+}
