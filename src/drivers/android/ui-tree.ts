@@ -38,7 +38,7 @@ const TOKEN = /\s+|<(\/?)([\w-]+)((?:\s+[\w-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\
 const ATTR = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
 
 type Element = { name: string; attrs: Map<string, string>; children: Element[] };
-type UiNode = { [field: string]: string | boolean | number[] | UiNode[] };
+export type UiNode = { [field: string]: string | boolean | number[] | UiNode[] };
 
 const camel = (name: string) => name.replace(/-(\w)/g, (_: string, letter: string) => letter.toUpperCase());
 
@@ -170,8 +170,8 @@ async function read(id: string) {
   }
 }
 
-export async function uiTree(device: string | undefined) {
-  const id = await resolveTarget(device);
+// One tree of a resolved serial; tap reads it too (K26).
+export async function readTree(id: string): Promise<{ rotation: number; root: UiNode }> {
   let result = await read(id);
   // Chromium builds a WebView's tree only after the first request, so a fresh WebView reads empty once (5 of 5
   // measured). One more read, never more (K24).
@@ -183,5 +183,11 @@ export async function uiTree(device: string | undefined) {
       // The first read was valid; the extra one may only improve it, never turn it into an error.
     }
   }
-  return { device: id, rotation: result.rotation, root: result.root };
+  return { rotation: result.rotation, root: result.root };
+}
+
+export async function uiTree(device: string | undefined) {
+  const id = await resolveTarget(device);
+  const { rotation, root } = await readTree(id);
+  return { device: id, rotation, root };
 }

@@ -9,8 +9,8 @@ const run = promisify(execFile);
 
 // adb blocks forever when something holds the server port and never answers.
 // A cold server start takes ~3.2 s: the server waits up to 3 s for its device scan.
-// The default for every call; the uiautomator dump passes a longer one (K19 note).
-const TIMEOUT_MS = 10_000;
+// The default for every call: the dump passes a longer one, and input.ts adds a gesture's duration (K19 note).
+export const TIMEOUT_MS = 10_000;
 
 // Above the 33 MB of uncompressed RGBA for a 3840x2160 display. Node's 1 MB default failed a 1.37 MB
 // screenshot PNG with ERR_CHILD_PROCESS_STDIO_MAXBUFFER (measured).
