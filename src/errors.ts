@@ -13,6 +13,10 @@ export type ErrorCode =
   | 'CAPTURE_FAILED'
   | 'AUTOMATION_BUSY'
   | 'WRITE_FAILED'
+  | 'TEXT_UNSUPPORTED'
+  | 'ELEMENT_NOT_FOUND'
+  | 'ELEMENT_AMBIGUOUS'
+  | 'ELEMENT_COVERED'
   | 'INTERNAL';
 
 export class KaragozError extends Error {
