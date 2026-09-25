@@ -15,13 +15,13 @@ const KEYS =
 // Android's own swipe default, passed so the output states it (K25).
 const SWIPE_MS = 300;
 
-// What Virtual.kcm types without a dead key (research note 1.5, K25); any other character fails the whole call.
+// What Virtual.kcm types without a dead key (K25); any other character fails the whole call.
 const TYPABLE = /^[\x20-\x7e\n\tçÇß]$/;
 
 // Cold typing measured ~20-30 ms per character, so a chunk stays well inside adb's 10 s timeout (K25).
 const CHUNK = 100;
 
-// adb's own escape_arg rule (research note 2): mksh expands nothing inside single quotes.
+// adb's own escape_arg rule (K25): mksh expands nothing inside single quotes.
 const quote = (arg: string) => `'${arg.replaceAll("'", "'\\''")}'`;
 
 // shell, not exec-out: exec-out drops the exit status, and input's 255 is the only failure it reports (K25).
