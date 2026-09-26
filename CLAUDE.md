@@ -17,6 +17,7 @@ One step at a time. A step is one command on one target, and it runs in this ord
 3. **Write** the shortest thing that works.
 4. **Prove** it with one smoke script.
 5. **Record** any decision or surprise in the journal.
+6. **Document** the command in `README.md` in the same PR: usage, flags, one real output example, error codes, supported targets. The journal is untracked and in Turkish, so the README is the only public reference.
 
 Research is never skipped. When an existing assumption conflicts with what the research turns up, the assumption changes.
 
