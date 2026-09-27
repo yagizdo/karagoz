@@ -4,6 +4,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { install, launch, terminate, uninstall } from './drivers/android/app.js';
 import { listDevices } from './drivers/android/devices.js';
 import { key, swipe, tap, text, type Target } from './drivers/android/input.js';
+import { logs } from './drivers/android/logs.js';
 import { screenshot } from './drivers/android/screenshot.js';
 import { uiTree } from './drivers/android/ui-tree.js';
 import { KaragozError } from './errors.js';
@@ -32,6 +33,23 @@ function decimal(label: string, value = ''): number {
 function integer(label: string, value = ''): number {
   if (!/^\d{1,9}$/.test(value)) {
     throw new KaragozError('INVALID_ARGS', `${label} must be a whole number of milliseconds (got '${value}')`);
+  }
+  return Number(value);
+}
+
+// logcat reads an all-digit -t value as a line count, so a whole second gets .0, and it wraps seconds above
+// 2^32-1 to another date without an error (K29).
+function seconds(label: string, value = ''): string {
+  if (!/^\d{1,10}(\.\d{1,9})?$/.test(value) || parseInt(value, 10) > 4294967295) {
+    throw new KaragozError('INVALID_ARGS', `${label} must be Unix time in seconds (got '${value}')`);
+  }
+  return value.includes('.') ? value : `${value}.0`;
+}
+
+// From 1: logs.ts keeps records.slice(-lines), and slice(-0) keeps everything.
+function count(label: string, value = ''): number {
+  if (!/^[1-9]\d{0,8}$/.test(value)) {
+    throw new KaragozError('INVALID_ARGS', `${label} must be a whole number from 1 to 999999999 (got '${value}')`);
   }
   return Number(value);
 }
@@ -121,6 +139,22 @@ const commands: Record<string, Command> = {
     options: { device: { type: 'string' } },
     args: ['package'],
     run: ({ device }, [name = '']) => uninstall(device, name),
+  },
+  logs: {
+    options: {
+      device: { type: 'string' },
+      package: { type: 'string' },
+      since: { type: 'string' },
+      lines: { type: 'string' },
+    },
+    args: [],
+    run: ({ device, package: name, since, lines }) =>
+      logs(
+        device,
+        name,
+        since === undefined ? undefined : seconds('--since', since),
+        lines === undefined ? undefined : count('--lines', lines),
+      ),
   },
 };
 
