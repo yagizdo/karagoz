@@ -3,6 +3,7 @@ import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 import pkg from '../package.json' with { type: 'json' };
 import { install, launch, terminate, uninstall } from './drivers/android/app.js';
 import { listDevices } from './drivers/android/devices.js';
+import { doctor } from './drivers/android/doctor.js';
 import { key, swipe, tap, text, type Target } from './drivers/android/input.js';
 import { logs } from './drivers/android/logs.js';
 import { screenshot } from './drivers/android/screenshot.js';
@@ -156,6 +157,7 @@ const commands: Record<string, Command> = {
         lines === undefined ? undefined : count('--lines', lines),
       ),
   },
+  doctor: { options: {}, args: [], run: () => doctor() },
 };
 
 try {

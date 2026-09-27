@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI today; an MCP server over the same core is planned so an AI agent can drive it.
 
-> **Status: early development.** Twelve commands work on the Android emulator. The other three targets and the MCP server are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, and `doctor` reports the `adb` they use. The other three targets and the MCP server are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -30,6 +30,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   - [terminate](#terminate)
   - [uninstall](#uninstall)
   - [logs](#logs)
+  - [doctor](#doctor)
 - [Scope](#scope)
 - [Development](#development)
 - [Name](#name)
@@ -51,9 +52,10 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`terminate`](#terminate) | done | planned | planned | planned |
 | [`uninstall`](#uninstall) | done | planned | planned | planned |
 | [`logs`](#logs) | done | planned | planned | planned |
+| [`doctor`](#doctor) | done | done | planned | planned |
 | MCP server | planned | | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. Physical Android devices go through the same `adb` calls, but no command has been tested on one yet. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. Physical Android devices go through the same `adb` calls, but no command has been tested on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -64,7 +66,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   3. `adb` on `PATH`
   4. Android Studio's default SDK: `~/Library/Android/sdk` on macOS, `~/Android/Sdk` on Linux, `%LOCALAPPDATA%\Android\Sdk` on Windows
 
-  An empty variable is skipped. The first `adb` that starts is used for the rest of the run, so a broken `adb` under `ANDROID_HOME` does not fall back to `PATH`. When none is found:
+  An empty variable is skipped. The first `adb` that starts is used for the rest of the run, so a broken `adb` under `ANDROID_HOME` does not fall back to `PATH`. The exception is an `adb` that fails to start with `ENOENT` (a missing interpreter or a broken link): it counts as not there, and the next one is tried. [`karagoz doctor`](#doctor) shows which one is used and why. `install` needs platform-tools 30.0.0 or newer. When none is found:
 
   ```json
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
@@ -184,13 +186,13 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | `NO_COMMAND` | No command given. The message lists the commands. | all |
 | `UNKNOWN_COMMAND` | The command name is not known. | all |
 | `INVALID_ARGS` | Missing, extra, malformed or unknown arguments, an unknown key name, an APK path that is not an existing `.apk` file, a malformed package name, a `--since` that is not Unix time in seconds, or a `--lines` outside 1 to 999999999. | all |
-| `ADB_NOT_FOUND` | No `adb` found. See [Requirements](#requirements). | all that reach adb |
-| `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 10 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump. | all that reach adb |
-| `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. For `logs`, logcat's own error text or output that is not whole log records. A device that disconnects mid-command ends here. | all that reach adb |
-| `NO_DEVICE` | No device connected and none named. | all but `devices` |
-| `DEVICE_NOT_FOUND` | The named device is not connected. | all but `devices` |
-| `DEVICE_AMBIGUOUS` | More than one device and none named. | all but `devices` |
-| `DEVICE_NOT_READY` | The device is `offline`, `unauthorized` or similar. | all but `devices` |
+| `ADB_NOT_FOUND` | No `adb` found. See [Requirements](#requirements). | all that reach adb, except `doctor`, which reports these in its output |
+| `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 10 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump. | all that reach adb, except `doctor`, which reports these in its output |
+| `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. For `logs`, logcat's own error text or output that is not whole log records. A device that disconnects mid-command ends here. | all that reach adb, except `doctor`, which reports these in its output |
+| `NO_DEVICE` | No device connected and none named. | all but `devices` and `doctor` |
+| `DEVICE_NOT_FOUND` | The named device is not connected. | all but `devices` and `doctor` |
+| `DEVICE_AMBIGUOUS` | More than one device and none named. | all but `devices` and `doctor` |
+| `DEVICE_NOT_READY` | The device is `offline`, `unauthorized` or similar. | all but `devices` and `doctor` |
 | `CAPTURE_FAILED` | The screen could not be read: bad screenshot data, missing display info, or a uiautomator failure. The message says which. | `screenshot`, `ui-tree`, `tap --text/--id` |
 | `AUTOMATION_BUSY` | Another UiAutomation client holds the device. | `ui-tree`, `tap --text/--id` |
 | `WRITE_FAILED` | The screenshot file could not be written. | `screenshot` |
@@ -220,6 +222,7 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | [`terminate`](#terminate) | Stop every process of an app |
 | [`uninstall`](#uninstall) | Remove an app |
 | [`logs`](#logs) | Read the device log |
+| [`doctor`](#doctor) | Report which adb karagoz uses |
 
 ### devices
 
@@ -723,6 +726,56 @@ Take the largest `time`, not the last record's: records are in arrival order, an
 - Android cuts a record's tag and message at 4068 bytes together when it is written. Bytes that are not valid UTF-8 become U+FFFD.
 - From Android 15 the device ends a read after 5 s without data and still exits `0`, so a read cut short looks complete.
 
+### doctor
+
+```
+karagoz doctor
+```
+
+Reports which `adb` karagoz uses, its version, every other `adb` it could use, and how to install platform-tools when adb is missing or too old. It changes nothing. No options.
+
+**Output**
+
+```json
+{"adb":{"status":"ok","source":"PATH","path":"/opt/homebrew/bin/adb","version":"37.0.0-14910828","candidates":[{"source":"ANDROID_HOME","status":"unset"},{"source":"ANDROID_SDK_ROOT","status":"unset"},{"source":"PATH","status":"ok","path":"/opt/homebrew/bin/adb","version":"37.0.0-14910828"},{"source":"default","status":"ok","path":"/Users/me/Library/Android/sdk/platform-tools/adb","version":"36.0.2-14143358"}]}}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `adb.status` | string | `ok`, `outdated` or `failed`: the status of the candidate karagoz uses. `missing`: no candidate can be used. |
+| `adb.source`, `adb.path`, `adb.version`, `adb.message` | string | Copied from the candidate karagoz uses, when it has them. |
+| `adb.install` | string | Only when `status` is not `ok`: how to install platform-tools on this OS, the same text `ADB_NOT_FOUND` prints. |
+| `adb.candidates` | array | The four places karagoz looks, in lookup order (see [Requirements](#requirements)). |
+| `candidates[].source` | string | `ANDROID_HOME`, `ANDROID_SDK_ROOT`, `PATH`, or `default` for Android Studio's default SDK. |
+| `candidates[].status` | string | See below. |
+| `candidates[].path` | string | When known: the file karagoz would run. For `PATH`, the path adb prints for itself in `adb version`, so it is absent when adb printed none; on Windows, the `adb.exe` found on `PATH`. |
+| `candidates[].version` | string | With `ok` and `outdated`: the `Version` line of `adb version`, as printed. |
+| `candidates[].message` | string | With `failed` and `outdated`: why, cut at 300 characters. |
+
+| Status | Means |
+| --- | --- |
+| `ok` | `adb version` exited `0` and reported platform-tools 30.0.0 or newer. |
+| `outdated` | `adb version` exited `0` and reported a version below 30.0.0. |
+| `failed` | Something is there but cannot be used: it did not start, exited non-zero, did not answer within 10 s, or printed no `Version` line. The message says which. |
+| `missing` | Nothing at that location. For `PATH`: no `adb` on `PATH`, or on macOS and Linux only ones that fail to start with `ENOENT` (see Notes). |
+| `unset` | No location to check: the variable is unset or empty. For `default`: Windows without `LOCALAPPDATA`. |
+
+The exit code is `0` whenever the report is printed, with adb missing or broken as well. Check `adb.status`.
+
+**Errors:** `INVALID_ARGS` for any argument or option (`'doctor' does not take the option '--device'`), `INTERNAL`.
+
+**Notes**
+
+- Only `adb version` runs, on every candidate at once. It never connects to the adb server, so server trouble does not show up here; the other commands report it as `ADB_TIMEOUT`.
+- Nothing is installed.
+- `outdated` means below platform-tools 30.0.0, where `install` fails: it passes `--no-incremental`, which older versions forward to the device, and the device rejects it. Debian 12 ships 29.0.6. The other commands still work.
+- `version` keeps the builder's suffix: digits from Google, `-debian`, `-android-tools`. Debian's 8.1.0 package prints its package version, `1:8.1.0+r23-8`, and is `outdated`. `1.0.41` in `Android Debug Bridge version 1.0.41` is adb's protocol number and is not shown.
+- For `PATH`, `path` is the symlink as invoked on macOS (`/opt/homebrew/bin/adb`) and the resolved file on Linux.
+- A candidate that is there but fails to start with `ENOENT` (a script whose interpreter is missing, a broken link) is shown `failed`, and karagoz moves on to the next one, as every command does. Any other failure stops the lookup at that candidate. The exception is `PATH` on macOS and Linux: `adb` runs by name there, the error does not say which file failed, and the candidate is shown `missing`.
+- An invalid `ANDROID_ADB_SERVER_PORT` makes `adb version` itself fail, so every `adb` found is `failed` with adb's message: `adb: $ANDROID_ADB_SERVER_PORT must be a positive number less than 65535: got "abc"`.
+- Took 0.1 s with two adbs; 1.4 s on a cold first run. A candidate that hangs costs 10 s, and the others run meanwhile.
+- Windows and Linux were not run.
+
 ## Scope
 
 karagoz is the primitive layer. Each command does one thing and exits.
@@ -738,7 +791,7 @@ npm run typecheck
 npm run lint        # oxlint and the Prettier check; npm run format fixes formatting
 ```
 
-Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator; the header of each script lists its preconditions:
+Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, except `smoke/1.7-doctor.sh`, which uses fake `adb` scripts only and never runs the real adb. The header of each script lists its preconditions:
 
 ```sh
 sh smoke/1.4-input.sh
