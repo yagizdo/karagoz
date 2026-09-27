@@ -17,12 +17,18 @@ export type ErrorCode =
   | 'ELEMENT_NOT_FOUND'
   | 'ELEMENT_AMBIGUOUS'
   | 'ELEMENT_COVERED'
+  | 'INSTALL_FAILED'
+  | 'UNINSTALL_FAILED'
+  | 'APP_NOT_FOUND'
+  | 'APP_NOT_LAUNCHABLE'
   | 'INTERNAL';
 
 export class KaragozError extends Error {
   constructor(
     readonly code: ErrorCode,
     message: string,
+    // Android's own code for INSTALL_FAILED and UNINSTALL_FAILED, such as INSTALL_FAILED_VERSION_DOWNGRADE (K5, K28).
+    readonly reason?: string,
   ) {
     super(message);
   }

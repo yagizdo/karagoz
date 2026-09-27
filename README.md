@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI today; an MCP server over the same core is planned so an AI agent can drive it.
 
-> **Status: early development.** Seven commands work on the Android emulator. The other three targets, app lifecycle, logs and the MCP server are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Eleven commands work on the Android emulator. The other three targets, logs and the MCP server are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -25,6 +25,10 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   - [swipe](#swipe)
   - [text](#text)
   - [key](#key)
+  - [install](#install-1)
+  - [launch](#launch)
+  - [terminate](#terminate)
+  - [uninstall](#uninstall)
 - [Scope](#scope)
 - [Development](#development)
 - [Name](#name)
@@ -41,7 +45,10 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`swipe`](#swipe) | done | planned | planned | planned |
 | [`text`](#text) | done | planned | planned | planned |
 | [`key`](#key) | done | planned | planned | planned |
-| `install` / `launch` / `terminate` | planned | planned | planned | planned |
+| [`install`](#install-1) | done | planned | planned | planned |
+| [`launch`](#launch) | done | planned | planned | planned |
+| [`terminate`](#terminate) | done | planned | planned | planned |
+| [`uninstall`](#uninstall) | done | planned | planned | planned |
 | `logs` | planned | planned | planned | planned |
 | MCP server | planned | | | |
 
@@ -62,7 +69,8 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
   ```
 
-- **A running emulator** (`emulator -avd <name>`) in state `device`. Nothing is installed on the emulator.
+- **A running emulator** (`emulator -avd <name>`) in state `device`. karagoz installs nothing on it by itself; `install` installs only the APK you pass it.
+- For the `smoke/1.5-app-lifecycle.sh` script only: a JDK and Android SDK build-tools with one platform. The smoke builds its own test APK, `dev.karagoz.smoke`, and removes it at the end. See [Development](#development).
 - For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked.
 
 ## Install
@@ -143,6 +151,14 @@ Every command prints exactly one line of JSON on stdout and exits.
 
   The same message goes to stderr as `karagoz: <message>`. It can span more than one line when it quotes adb or Node output; the stdout line never does.
 
+  `INSTALL_FAILED` and `UNINSTALL_FAILED` add a `reason` field with Android's own code for the failure:
+
+  ```json
+  {"error":{"code":"INSTALL_FAILED","message":"adb: failed to install /Users/me/app-v1.apk: Failure [INSTALL_FAILED_VERSION_DOWNGRADE: Downgrade detected: Update version code 1 is older than current 2]","reason":"INSTALL_FAILED_VERSION_DOWNGRADE"}}
+  ```
+
+  No other code has it.
+
 Branch on `error.code`, not on the message. Messages are for people and can change.
 
 stderr also carries adb's own notices on success, such as `* daemon started successfully` when the adb server was not running. That first call takes about 3 s longer.
@@ -166,10 +182,10 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | --- | --- | --- |
 | `NO_COMMAND` | No command given. The message lists the commands. | all |
 | `UNKNOWN_COMMAND` | The command name is not known. | all |
-| `INVALID_ARGS` | Missing, extra, malformed or unknown arguments, or an unknown key name. | all |
+| `INVALID_ARGS` | Missing, extra, malformed or unknown arguments, an unknown key name, an APK path that is not an existing `.apk` file, or a malformed package name. | all |
 | `ADB_NOT_FOUND` | No `adb` found. See [Requirements](#requirements). | all that reach adb |
-| `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump. | all that reach adb |
-| `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. A device that disconnects mid-command ends here. | all that reach adb |
+| `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 10 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump. | all that reach adb |
+| `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. A device that disconnects mid-command ends here. | all that reach adb |
 | `NO_DEVICE` | No device connected and none named. | all but `devices` |
 | `DEVICE_NOT_FOUND` | The named device is not connected. | all but `devices` |
 | `DEVICE_AMBIGUOUS` | More than one device and none named. | all but `devices` |
@@ -181,6 +197,10 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | `ELEMENT_NOT_FOUND` | No node matches. | `tap --text/--id` |
 | `ELEMENT_AMBIGUOUS` | More than one node matches. | `tap --text/--id` |
 | `ELEMENT_COVERED` | The node's center is under the on-screen keyboard. | `tap --text/--id` |
+| `INSTALL_FAILED` | Android refused the APK. `reason` is Android's code. | `install` |
+| `UNINSTALL_FAILED` | Android refused to remove the app. `reason` is Android's code. | `uninstall` |
+| `APP_NOT_FOUND` | The package is not installed. | `launch`, `terminate`, `uninstall` |
+| `APP_NOT_LAUNCHABLE` | The package is installed but has no activity a launcher can start. | `launch` |
 | `INTERNAL` | A bug in karagoz. Please report it with the message. | all |
 
 ## Commands
@@ -194,6 +214,10 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | [`swipe`](#swipe) | Swipe between two points |
 | [`text`](#text) | Type text into the focused field |
 | [`key`](#key) | Press a key |
+| [`install`](#install-1) | Install or replace an app from an APK |
+| [`launch`](#launch) | Start an app as its launcher icon does |
+| [`terminate`](#terminate) | Stop every process of an app |
+| [`uninstall`](#uninstall) | Remove an app |
 
 ### devices
 
@@ -487,6 +511,147 @@ Presses one key.
 - Some keys act on the whole device: code 312 opens Recents, 318 saves a screenshot.
 - Exit `0` means Android accepted the key, not that the app reacted to it.
 
+### install
+
+```
+karagoz install <apk> [--device <id>]
+```
+
+Installs an app from one APK file, or replaces the installed version of the same app.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `<apk>` | | Path to an `.apk` file. A relative path is resolved against the current directory. |
+| `--device <id>` | see [Device selection](#device-selection) | |
+
+**Output**
+
+```json
+{"device":"emulator-5554","path":"/Users/me/app/build/outputs/apk/debug/app-debug.apk"}
+```
+
+`path` is the absolute path of the APK, as given (symlinks are not followed). The package name is not reported.
+
+**Errors**
+
+- `INVALID_ARGS`: `'<path>' is not an .apk file`, `no file at '<path>'` or `'<path>' is not a file`. Checked before any device call.
+- `INSTALL_FAILED`: Android refused the APK. The message is adb's, and `reason` is Android's code, as in the [example above](#output-and-errors). Codes seen on the emulator: `INSTALL_FAILED_VERSION_DOWNGRADE` (a lower `versionCode` than the installed app), `INSTALL_FAILED_UPDATE_INCOMPATIBLE` (signed with another key), `INSTALL_PARSE_FAILED_NOT_APK`, `INSTALL_FAILED_DEPRECATED_SDK_VERSION` (`targetSdkVersion` below 24 on Android 16).
+- A failure without an Android code, such as `Error: device is still booting.`, stays `ADB_FAILED`.
+- `ADB_TIMEOUT` after 10 s plus 1 s for every started MB of the APK.
+- Plus the [device selection](#device-selection) errors and the adb errors.
+
+**Notes**
+
+- Runs `adb install -r --no-incremental`. Since Android 9 a reinstall replaces the app without `-r`; it stays for older devices. `--no-incremental` matters when an `.idsig` file sits next to the APK (`apksigner` writes one by default): adb would then install incrementally, through a background `adb inc-server` process.
+- One `.apk` only. Split APKs, `.apks` and `.aab` are not supported. There is no way to pass `-g` (grant runtime permissions), `-d` (allow a downgrade) or `-t`: an APK marked `testOnly`, which Android Studio's Run button can produce, fails with `INSTALL_FAILED_TEST_ONLY`.
+- An 8.5 KB APK took 0.7 s, a 100 MB one 2.5 to 3.4 s.
+
+### launch
+
+```
+karagoz launch <package> [--device <id>]
+```
+
+Starts an app the way tapping its launcher icon does.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `<package>` | | The package name, such as `com.android.settings`. |
+| `--device <id>` | see [Device selection](#device-selection) | |
+
+**Output**
+
+```json
+{"device":"emulator-5554","package":"com.android.settings","activity":"com.android.settings/.homepage.SettingsHomepageActivity"}
+```
+
+`activity` is the activity Android reports as started, in its `package/.Class` short form, or `null` when Android names none. It is not always the launcher activity:
+
+- Settings' launcher activity `.Settings` hands off to `.homepage.SettingsHomepageActivity`, and that one is reported.
+- If the app's task is already running, it comes to the front as it is, and its top activity is reported, even one from another package. With the Settings search open, `launch com.android.settings` reports `com.google.android.settings.intelligence/.modules.search.activity.SearchActivity`.
+
+**Which activity is started.** Android's own rule for launch intents: the first activity with the `MAIN` action and the `INFO` category, otherwise the first with `MAIN` and `LAUNCHER`. With two launcher activities the first one Android lists is started; no chooser appears.
+
+**Errors**
+
+- `INVALID_ARGS`: `'<value>' is not a package name`. A package name is letters, digits and `_`, in dot-separated parts that each start with a letter. Checked before any device call.
+- `APP_NOT_FOUND`: `package 'dev.karagoz.nope' is not installed on emulator-5554`.
+- `APP_NOT_LAUNCHABLE`: `package 'com.android.shell' has no launcher activity`.
+- `ADB_FAILED`: Android refused the start. The message is Android's `Error:` line, such as `Error: Activity class {com.example/com.example.Main} does not exist.`
+- `ADB_TIMEOUT` after 30 s. Android itself gives up after 10 s for a process to start and 10 s for the activity to settle.
+- Plus the [device selection](#device-selection) errors and the adb errors.
+
+**Notes**
+
+- Exit `0` means Android started the activity, not that the app is up. An app that crashes at start, and a start with the screen off, also exit `0`. Read the [tree](#ui-tree) to check.
+- Nothing is restarted or cleared. For a fresh start, run [`terminate`](#terminate) first.
+- A cold start of a small app took 1.7 to 2.0 s.
+
+### terminate
+
+```
+karagoz terminate <package> [--device <id>]
+```
+
+Stops an app with `am force-stop`: every process of the package is killed before the command returns, and Android removes its alarms, scheduled jobs and notifications.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `<package>` | | The package name. |
+| `--device <id>` | see [Device selection](#device-selection) | |
+
+**Output**
+
+```json
+{"device":"emulator-5554","package":"com.android.settings"}
+```
+
+An app that is installed but not running gives the same output.
+
+**Errors**
+
+- `INVALID_ARGS`: `'<value>' is not a package name`, as for [`launch`](#launch).
+- `APP_NOT_FOUND`: the package is not installed. `am force-stop` alone says nothing in that case, so karagoz checks first.
+- `ADB_FAILED`: `am force-stop` printed an error; the message is that error.
+- Plus the [device selection](#device-selection) errors and the adb errors.
+
+**Notes**
+
+- Only the package's own processes stop. An activity from another package in the same task stays on screen: after `terminate com.android.settings` with the Settings search open, the search is still in front.
+- Took 0.8 to 1.3 s.
+
+### uninstall
+
+```
+karagoz uninstall <package> [--device <id>]
+```
+
+Removes an app and its data.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `<package>` | | The package name. |
+| `--device <id>` | see [Device selection](#device-selection) | |
+
+**Output**
+
+```json
+{"device":"emulator-5554","package":"dev.karagoz.smoke"}
+```
+
+**Errors**
+
+- `INVALID_ARGS`: `'<value>' is not a package name`, as for [`launch`](#launch).
+- `APP_NOT_FOUND`: the package is not installed. Checked first, because Android answers a missing package with `DELETE_FAILED_INTERNAL_ERROR`, the same code it gives for a package it will not remove.
+- `UNINSTALL_FAILED`: Android refused. The message is Android's `Failure [...]` line and `reason` its code, such as `DELETE_FAILED_INTERNAL_ERROR` for a system app with no updates.
+- Plus the [device selection](#device-selection) errors and the adb errors.
+
+**Notes**
+
+- A system app with installed updates goes back to its factory version. Android reports that as success, and so does karagoz.
+- The app's data is always removed; `adb uninstall -k` (keep data) is not offered.
+- Took 0.6 to 0.8 s.
+
 ## Scope
 
 karagoz is the primitive layer. Each command does one thing and exits.
@@ -507,6 +672,8 @@ Each step has one smoke script in `smoke/`. Each builds first and needs a runnin
 ```sh
 sh smoke/1.4-input.sh
 ```
+
+`smoke/1.5-app-lifecycle.sh` also builds a test APK on every run, from the manifest in `smoke/fixtures/app-lifecycle/`, and installs and removes it as `dev.karagoz.smoke`. No APK is kept in the repository. It needs a JDK (`java` and `keytool` on `PATH`) and, from the Android SDK, build-tools with `aapt2` and `apksigner` plus one platform. The SDK is the first of `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Library/Android/sdk` and `~/Android/Sdk` that has both `build-tools/` and `platforms/`. When something is missing the smoke fails and says what, rather than skipping.
 
 ## Name
 

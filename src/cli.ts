@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 import pkg from '../package.json' with { type: 'json' };
+import { install, launch, terminate, uninstall } from './drivers/android/app.js';
 import { listDevices } from './drivers/android/devices.js';
 import { key, swipe, tap, text, type Target } from './drivers/android/input.js';
 import { screenshot } from './drivers/android/screenshot.js';
@@ -101,6 +102,26 @@ const commands: Record<string, Command> = {
       return text(device, value);
     },
   },
+  install: {
+    options: { device: { type: 'string' } },
+    args: ['apk'],
+    run: ({ device }, [apk = '']) => install(device, apk),
+  },
+  launch: {
+    options: { device: { type: 'string' } },
+    args: ['package'],
+    run: ({ device }, [name = '']) => launch(device, name),
+  },
+  terminate: {
+    options: { device: { type: 'string' } },
+    args: ['package'],
+    run: ({ device }, [name = '']) => terminate(device, name),
+  },
+  uninstall: {
+    options: { device: { type: 'string' } },
+    args: ['package'],
+    run: ({ device }, [name = '']) => uninstall(device, name),
+  },
 };
 
 try {
@@ -145,7 +166,9 @@ try {
       : typeof raw === 'string' && raw.startsWith('ERR_PARSE_ARGS')
         ? 'INVALID_ARGS'
         : 'INTERNAL';
-  process.stdout.write(`${JSON.stringify({ error: { code, message } })}\n`);
+  // JSON.stringify drops an undefined reason, so every other envelope stays as it was.
+  const reason = err instanceof KaragozError ? err.reason : undefined;
+  process.stdout.write(`${JSON.stringify({ error: { code, message, reason } })}\n`);
   process.stderr.write(`karagoz: ${message}\n`);
   process.exitCode = 1;
 }
