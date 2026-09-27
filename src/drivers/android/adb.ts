@@ -23,9 +23,17 @@ const INSTALL: Record<string, string> = {
   win32: 'winget install Google.PlatformTools',
 };
 
-// Explicit SDK config first, then PATH, then Android Studio's default SDK location.
-function candidates(): string[] {
-  const at = (sdk: string | undefined) => (sdk ? [join(sdk, 'platform-tools', exe)] : []);
+// Printed, never run: the package manager may not be there, so the official download is always offered too.
+const download = 'download https://developer.android.com/tools/releases/platform-tools and add it to PATH';
+const manager = INSTALL[process.platform];
+export const INSTALL_HINT = `Install platform-tools (${manager ? `${manager}, or ${download}` : download}) or set ANDROID_HOME to your Android SDK.`;
+
+export type Source = 'ANDROID_HOME' | 'ANDROID_SDK_ROOT' | 'PATH' | 'default';
+
+// Explicit SDK config first, then PATH, then Android Studio's default SDK location. bin is undefined when a source
+// has no location (an unset or empty variable, no LOCALAPPDATA on Windows).
+export function candidates(): { source: Source; bin: string | undefined }[] {
+  const at = (sdk: string | undefined) => (sdk ? join(sdk, 'platform-tools', exe) : undefined);
   const local = process.env.LOCALAPPDATA;
   const defaultSdk: Record<string, string | undefined> = {
     darwin: join(homedir(), 'Library', 'Android', 'sdk'),
@@ -33,17 +41,22 @@ function candidates(): string[] {
     win32: local && join(local, 'Android', 'Sdk'),
   };
   return [
-    ...at(process.env.ANDROID_HOME),
-    ...at(process.env.ANDROID_SDK_ROOT),
-    'adb',
-    ...at(defaultSdk[process.platform]),
+    { source: 'ANDROID_HOME', bin: at(process.env.ANDROID_HOME) },
+    { source: 'ANDROID_SDK_ROOT', bin: at(process.env.ANDROID_SDK_ROOT) },
+    { source: 'PATH', bin: 'adb' },
+    { source: 'default', bin: at(defaultSdk[process.platform]) },
   ];
+}
+
+// The lookup's skip rule: a candidate that spawns with ENOENT is not there (K19).
+export function skipped(err: Error): boolean {
+  return 'code' in err && err.code === 'ENOENT';
 }
 
 // The 'adb' candidate. On Windows libuv looks a bare name up in the current directory before PATH,
 // so an adb.exe in the directory karagoz runs from would win. PATH is walked here instead, absolute
 // entries only: libuv resolves relative ones against the current directory too.
-function onPath(): string | undefined {
+export function onPath(): string | undefined {
   if (process.platform !== 'win32') return 'adb';
   return (process.env.PATH ?? '')
     .split(delimiter)
@@ -59,7 +72,7 @@ let resolved: string | undefined;
 // The bytes form exists because a screenshot PNG must not pass through a text decode; adb() below decodes the
 // same result, so both share this one candidate loop, timeout and error mapping.
 export async function adbBytes(args: string[], timeout = TIMEOUT_MS): Promise<Buffer> {
-  const tried = resolved ? [resolved] : candidates();
+  const tried = resolved ? [resolved] : candidates().flatMap(({ bin }) => (bin ? [bin] : []));
   for (const candidate of tried) {
     const bin = candidate === 'adb' ? onPath() : candidate;
     if (!bin) continue;
@@ -74,7 +87,7 @@ export async function adbBytes(args: string[], timeout = TIMEOUT_MS): Promise<Bu
       return stdout;
     } catch (err) {
       if (!(err instanceof Error)) throw err;
-      if ('code' in err && err.code === 'ENOENT') continue;
+      if (skipped(err)) continue;
       resolved = bin;
       if ('killed' in err && err.killed) {
         throw new KaragozError(
@@ -87,16 +100,15 @@ export async function adbBytes(args: string[], timeout = TIMEOUT_MS): Promise<Bu
     }
   }
   const where = tried.map((bin) => (bin === 'adb' ? 'PATH' : bin)).join(', ');
-  // Printed, never run: the package manager may not be there, so the official download is always offered too.
-  const download = 'download https://developer.android.com/tools/releases/platform-tools and add it to PATH';
-  const manager = INSTALL[process.platform];
-  const install = manager ? `${manager}, or ${download}` : download;
-  throw new KaragozError(
-    'ADB_NOT_FOUND',
-    `adb not found (tried ${where}). Install platform-tools (${install}) or set ANDROID_HOME to your Android SDK.`,
-  );
+  throw new KaragozError('ADB_NOT_FOUND', `adb not found (tried ${where}). ${INSTALL_HINT}`);
 }
 
 export async function adb(args: string[], timeout = TIMEOUT_MS): Promise<string> {
   return (await adbBytes(args, timeout)).toString('utf8');
+}
+
+// For doctor: `adb version` never connects to the server (K30). async turns execFile's synchronous spawn throws
+// (ENOEXEC, ENOTDIR) into rejections.
+export async function version(bin: string): Promise<string> {
+  return (await run(bin, ['version'], { timeout: TIMEOUT_MS, encoding: 'utf8' })).stdout;
 }
