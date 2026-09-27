@@ -9,7 +9,7 @@ import { resolveTarget } from './devices.js';
 const LAUNCH_TIMEOUT_MS = 30_000;
 
 // Android's package-name alphabet. The value reaches a device shell (K28).
-function checkPackage(value: string): void {
+export function checkPackage(value: string): void {
   if (!/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)*$/.test(value)) {
     throw new KaragozError('INVALID_ARGS', `'${value}' is not a package name`);
   }

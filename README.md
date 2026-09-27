@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI today; an MCP server over the same core is planned so an AI agent can drive it.
 
-> **Status: early development.** Eleven commands work on the Android emulator. The other three targets, logs and the MCP server are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator. The other three targets and the MCP server are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -29,6 +29,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   - [launch](#launch)
   - [terminate](#terminate)
   - [uninstall](#uninstall)
+  - [logs](#logs)
 - [Scope](#scope)
 - [Development](#development)
 - [Name](#name)
@@ -49,7 +50,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`launch`](#launch) | done | planned | planned | planned |
 | [`terminate`](#terminate) | done | planned | planned | planned |
 | [`uninstall`](#uninstall) | done | planned | planned | planned |
-| `logs` | planned | planned | planned | planned |
+| [`logs`](#logs) | done | planned | planned | planned |
 | MCP server | planned | | | |
 
 "Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. Physical Android devices go through the same `adb` calls, but no command has been tested on one yet. Windows and Linux have not been run.
@@ -182,10 +183,10 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | --- | --- | --- |
 | `NO_COMMAND` | No command given. The message lists the commands. | all |
 | `UNKNOWN_COMMAND` | The command name is not known. | all |
-| `INVALID_ARGS` | Missing, extra, malformed or unknown arguments, an unknown key name, an APK path that is not an existing `.apk` file, or a malformed package name. | all |
+| `INVALID_ARGS` | Missing, extra, malformed or unknown arguments, an unknown key name, an APK path that is not an existing `.apk` file, a malformed package name, a `--since` that is not Unix time in seconds, or a `--lines` outside 1 to 999999999. | all |
 | `ADB_NOT_FOUND` | No `adb` found. See [Requirements](#requirements). | all that reach adb |
 | `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 10 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump. | all that reach adb |
-| `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. A device that disconnects mid-command ends here. | all that reach adb |
+| `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. For `logs`, logcat's own error text or output that is not whole log records. A device that disconnects mid-command ends here. | all that reach adb |
 | `NO_DEVICE` | No device connected and none named. | all but `devices` |
 | `DEVICE_NOT_FOUND` | The named device is not connected. | all but `devices` |
 | `DEVICE_AMBIGUOUS` | More than one device and none named. | all but `devices` |
@@ -199,7 +200,7 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | `ELEMENT_COVERED` | The node's center is under the on-screen keyboard. | `tap --text/--id` |
 | `INSTALL_FAILED` | Android refused the APK. `reason` is Android's code. | `install` |
 | `UNINSTALL_FAILED` | Android refused to remove the app. `reason` is Android's code. | `uninstall` |
-| `APP_NOT_FOUND` | The package is not installed. | `launch`, `terminate`, `uninstall` |
+| `APP_NOT_FOUND` | The package is not installed. | `launch`, `terminate`, `uninstall`, `logs` |
 | `APP_NOT_LAUNCHABLE` | The package is installed but has no activity a launcher can start. | `launch` |
 | `INTERNAL` | A bug in karagoz. Please report it with the message. | all |
 
@@ -218,6 +219,7 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | [`launch`](#launch) | Start an app as its launcher icon does |
 | [`terminate`](#terminate) | Stop every process of an app |
 | [`uninstall`](#uninstall) | Remove an app |
+| [`logs`](#logs) | Read the device log |
 
 ### devices
 
@@ -651,6 +653,75 @@ Removes an app and its data.
 - A system app with installed updates goes back to its factory version. Android reports that as success, and so does karagoz.
 - The app's data is always removed; `adb uninstall -k` (keep data) is not offered.
 - Took 0.6 to 0.8 s.
+
+### logs
+
+```
+karagoz logs [--package <package>] [--since <seconds>] [--lines <n>] [--device <id>]
+```
+
+Reads the device log once and prints the newest records as JSON. Each record is whole: a stack trace is one record with newlines in its message, not one entry per line.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--package <package>` | all records | Keep only the records written under this package's Linux user id (uid). |
+| `--since <seconds>` | the whole log | Unix time in seconds on the device clock, up to 9 decimals and at most 4294967295. Only records stamped later are read. |
+| `--lines <n>` | `100` | How many of the newest matching records to return, 1 to 999999999. |
+| `--device <id>` | see [Device selection](#device-selection) | |
+
+**Output**
+
+```json
+{"device":"emulator-5554","package":"com.android.shell","uid":2000,"records":[{"time":1790521762.474251,"pid":24931,"tid":24931,"level":"I","tag":"KaragozManual","message":"hello from karagoz"}],"omitted":0}
+```
+
+That record was written with `adb shell log -t KaragozManual "hello from karagoz"`; `adb shell` runs as `com.android.shell`.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `device` | string | Serial of the device read. |
+| `package` | string | Only with `--package`: the package as given. |
+| `uid` | number | Only with `--package`: the uid the records were matched on. `com.android.settings` has 1000, which it shares with the system server. |
+| `records` | array | The matching records, at most `--lines`, oldest first in the order the device's log daemon received them. |
+| `records[].time` | number | When the record was written: seconds since the Unix epoch on the device clock, to the microsecond, rounded up. |
+| `records[].pid`, `records[].tid` | number | Process and thread that wrote it. |
+| `records[].level` | string | `V`, `D`, `I`, `W`, `E` or `F`; `?` for any other priority. |
+| `records[].tag` | string | The log tag. |
+| `records[].message` | string | The message, newlines kept. |
+| `omitted` | number | How many older matching records `--lines` left out. `0` when `records` holds every match. |
+
+An empty `records` with `omitted` `0` means nothing matched. It is not an error.
+
+**Reading since your last call.** Pass the largest `time` of one result as the next `--since` to get only newer records. The rounding up makes this exact: no record comes back in the next call. After the call above:
+
+```
+karagoz logs --package com.android.shell --since 1790521762.474251
+```
+
+```json
+{"device":"emulator-5554","package":"com.android.shell","uid":2000,"records":[],"omitted":0}
+```
+
+Take the largest `time`, not the last record's: records are in arrival order, and times can step back by a few milliseconds.
+
+**Errors**
+
+- `INVALID_ARGS`: `'<value>' is not a package name`, as for [`launch`](#launch); `--since must be Unix time in seconds (got '<value>')`; `--lines must be a whole number from 1 to 999999999 (got '<value>')`. Checked before any device call.
+- `APP_NOT_FOUND`: `package 'dev.karagoz.missing' is not installed on emulator-5554`.
+- `ADB_FAILED`: logcat printed its own error instead of records, such as `Failed to wait for logd.ready to become true. logd not running?`; the output was not whole log records; or `pm list packages` printed an error while karagoz looked up the uid. The message is that output, cut at 300 characters.
+- `ADB_TIMEOUT` after 10 s.
+- Plus the [device selection](#device-selection) errors and the adb errors.
+
+**Notes**
+
+- Logs read: main, system and crash, plus kernel from Android 11, logcat's defaults. The events log is not read.
+- The log is never cleared, resized or reconfigured, so other tools and the user keep their history. A call reads what is there and exits; nothing streams. To wait for a line, call again with `--since`.
+- The whole window is read from the device and filtered on the host, because logcat counts records before it filters by uid. A full log on the test emulator was 26 MB, about 133,000 records: `logs --lines 1` took 0.7 s, 0.8 s with `--package`. The default 100 records come to about 25 KB of JSON on average; a run of long stack traces can pass 30 KB.
+- `--package` matches the uid, not a process: every process of the app, every restart, and its Java and native crash lines. Lines the system server writes about the app, such as `Start proc` and `ANR in`, have uid 1000 and are not included. A package that shares a system uid, such as Settings, gets the other processes of that uid as well.
+- A record stamped at or before `--since` that the log daemon receives after the previous read is returned by neither call. Records arrived up to 8.4 ms late on the test emulator.
+- `--since` is on the device clock. The emulator keeps it in step with the host (within 55 ms here), so a host timestamp works there too.
+- Android cuts a record's tag and message at 4068 bytes together when it is written. Bytes that are not valid UTF-8 become U+FFFD.
+- From Android 15 the device ends a read after 5 s without data and still exits `0`, so a read cut short looks complete.
 
 ## Scope
 
