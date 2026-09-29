@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -68,25 +69,40 @@ export function onPath(): string | undefined {
 
 let resolved: string | undefined;
 
+// For doctor: under `karagoz mcp` resolved lives for the session and adbBytes tries it first (K19 M notes).
+export const cachedAdb = (): string | undefined => resolved;
+
+// The MCP server runs each call inside cancellation.run(signal, ...); the CLI never does, so the store is empty there
+// and nothing changes (K31).
+export const cancellation = new AsyncLocalStorage<AbortSignal>();
+
 // Runs adb and returns its stdout. adb's own stderr (e.g. "* daemon started successfully") is passed through.
 // The bytes form exists because a screenshot PNG must not pass through a text decode; adb() below decodes the
 // same result, so both share this one candidate loop, timeout and error mapping.
 export async function adbBytes(args: string[], timeout = TIMEOUT_MS): Promise<Buffer> {
-  const tried = resolved ? [resolved] : candidates().flatMap(({ bin }) => (bin ? [bin] : []));
+  // A cached adb that spawns with ENOENT (deleted, SDK moved) falls through to a full lookup in the same call (K19).
+  const found = candidates().flatMap(({ bin }) => (bin ? [bin] : []));
+  const tried = resolved ? [resolved, ...found.filter((bin) => bin !== resolved)] : found;
+  const signal = cancellation.getStore();
   for (const candidate of tried) {
     const bin = candidate === 'adb' ? onPath() : candidate;
     if (!bin) continue;
+    // An aborted signal still spawns adb and kills it a tick later.
+    signal?.throwIfAborted();
     try {
       const { stdout, stderr } = await run(bin, args, {
         timeout,
         encoding: 'buffer',
         maxBuffer: MAX_BUFFER,
+        ...(signal && { signal }),
       });
       resolved = bin;
       process.stderr.write(stderr);
       return stdout;
     } catch (err) {
       if (!(err instanceof Error)) throw err;
+      // The SDK sends no response for a cancelled call, so the abort passes through unmapped and resolved stays (K31).
+      if (signal?.aborted) throw err;
       if (skipped(err)) continue;
       resolved = bin;
       if ('killed' in err && err.killed) {
@@ -99,6 +115,7 @@ export async function adbBytes(args: string[], timeout = TIMEOUT_MS): Promise<Bu
       throw new KaragozError('ADB_FAILED', stderr || err.message);
     }
   }
+  resolved = undefined;
   const where = tried.map((bin) => (bin === 'adb' ? 'PATH' : bin)).join(', ');
   throw new KaragozError('ADB_NOT_FOUND', `adb not found (tried ${where}). ${INSTALL_HINT}`);
 }
@@ -110,5 +127,6 @@ export async function adb(args: string[], timeout = TIMEOUT_MS): Promise<string>
 // For doctor: `adb version` never connects to the server (K30). async turns execFile's synchronous spawn throws
 // (ENOEXEC, ENOTDIR) into rejections.
 export async function version(bin: string): Promise<string> {
-  return (await run(bin, ['version'], { timeout: TIMEOUT_MS, encoding: 'utf8' })).stdout;
+  const signal = cancellation.getStore();
+  return (await run(bin, ['version'], { timeout: TIMEOUT_MS, encoding: 'utf8', ...(signal && { signal }) })).stdout;
 }

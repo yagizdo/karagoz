@@ -33,15 +33,14 @@ Research is never skipped. When an existing assumption conflicts with what the r
 
 **Licensing.** MIT. Dependencies must be MIT, ISC, BSD, Apache-2.0 or BlueOak. No copyleft, and no source-available licenses with commercial use restrictions.
 
-**MCP imports.** Only the stdio subpaths:
+**MCP imports.** Only these two, from `@modelcontextprotocol/server` v2:
 
 ```
-@modelcontextprotocol/sdk/server/index.js
-@modelcontextprotocol/sdk/server/stdio.js
-@modelcontextprotocol/sdk/types.js
+@modelcontextprotocol/server
+@modelcontextprotocol/server/stdio
 ```
 
-Importing the package root pulls the HTTP transport and OAuth tree into the bundle.
+The v1 subpaths do not exist in v2, and v2's root does not bundle the HTTP transports. `smoke/M-mcp.sh` checks that no HTTP transport or bearer-auth code reaches `dist/` (K14).
 
 ## Conventions
 

@@ -2,7 +2,8 @@
 # Step 1.2: `screenshot` captures a running emulator by serial or AVD name as a whole, full-resolution PNG, and
 # every capture carries the K6 metadata read with it (logical size, scale, safe area, rotation);
 # the default file is private (0600) and a symlink planted at the default directory is refused;
-# an unknown target and an option the command does not declare fail with the JSON envelope.
+# an unknown target and an option the command does not declare fail with the JSON envelope;
+# an --out that does not end in .png is refused before any device call.
 # Precondition: an emulator is running (emulator -avd <name>). Nothing here boots, stops, rotates or restarts
 # anything, and the adb server on the default port is never touched.
 set -e
@@ -17,6 +18,11 @@ trap 'set +e; [ -z "$shot" ] || rm -f "$shot"; rm -rf "$tmp"' EXIT
 code_of() { node -e '
   const out = require("fs").readFileSync(0, "utf8").trimEnd();
   try { console.log(out.includes("\n") ? "not-one-line" : JSON.parse(out).error.code) } catch { console.log("not-json") }
+'; }
+# Prints .error.message of a one-line envelope, or not-json.
+message_of() { node -e '
+  const out = require("fs").readFileSync(0, "utf8").trimEnd();
+  try { console.log(out.includes("\n") ? "not-one-line" : JSON.parse(out).error.message) } catch { console.log("not-json") }
 '; }
 # Prints one field of a success result (a dotted key such as pixels.width). Fails unless stdout is one JSON line.
 field() { node -e '
@@ -107,5 +113,20 @@ if miss=$(node dist/cli.js screenshot --device nope 2>/dev/null); then echo "FAI
 # 6. devices declares no options.
 if bad=$(node dist/cli.js devices --device x 2>/dev/null); then echo "FAIL: devices --device exited 0"; exit 1; fi
 [ "$(printf '%s' "$bad" | code_of)" = INVALID_ARGS ] || { echo "FAIL: expected INVALID_ARGS, got: $bad"; exit 1; }
+
+# 7. --out must end in .png, any case. --device nope gives DEVICE_NOT_FOUND once the check passes, so the code shows
+# the check runs before the device lookup.
+if bad=$(node dist/cli.js screenshot --device nope --out "$tmp/shot.jpg" 2>/dev/null); then
+  echo "FAIL: screenshot --out .jpg exited 0"; exit 1
+fi
+[ "$(printf '%s' "$bad" | code_of)" = INVALID_ARGS ] || { echo "FAIL: screenshot --out .jpg: expected INVALID_ARGS, got: $bad"; exit 1; }
+[ "$(printf '%s' "$bad" | message_of)" = "'$tmp/shot.jpg' is not a .png file" ] \
+  || { echo "FAIL: screenshot --out .jpg: expected the message \"'$tmp/shot.jpg' is not a .png file\", got: $bad"; exit 1; }
+[ ! -e "$tmp/shot.jpg" ] || { echo "FAIL: screenshot --out .jpg wrote $tmp/shot.jpg"; exit 1; }
+if bad=$(node dist/cli.js screenshot --device nope --out "$tmp/SHOT.PNG" 2>/dev/null); then
+  echo "FAIL: screenshot --out .PNG exited 0"; exit 1
+fi
+[ "$(printf '%s' "$bad" | code_of)" = DEVICE_NOT_FOUND ] \
+  || { echo "FAIL: screenshot --out .PNG: expected DEVICE_NOT_FOUND, got: $bad"; exit 1; }
 
 echo "ok: $out"

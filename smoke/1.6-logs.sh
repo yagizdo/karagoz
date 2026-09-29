@@ -212,15 +212,15 @@ printf '%s\n' '1 1 1790513987 191234001 2000 4 T 64' '1 1 1790513987 0 2000 4 T 
 fake_run logs --device emulator-5554 || { echo "FAIL: fixture d exited non-zero: $got"; exit 1; }
 result_is d '{"device":"emulator-5554","records":[{"time":1790513987.191235,"pid":1,"tid":1,"level":"I","tag":"T","message":"d"},{"time":1790513987,"pid":1,"tid":1,"level":"I","tag":"T","message":"d"}],"omitted":0}'
 
-# e. The default keeps the newest 100.
+# e. The default keeps the newest 30.
 node -e 'for (let i = 0; i < 150; i++) console.log(`1 1 1790513987 0 2000 4 T ${Buffer.from(`m${i}`).toString("hex")}`)' \
   | entries > "$fake/out"
 fake_run logs --device emulator-5554 || { echo "FAIL: fixture e exited non-zero: $got"; exit 1; }
 recs=$(printf '%s' "$got" | records_of) || { echo "FAIL: fixture e: not one JSON line with records: $got"; exit 1; }
-[ "$(printf '%s\n' "$recs" | wc -l | tr -d ' ')" = 100 ] || { echo "FAIL: fixture e: expected 100 records"; exit 1; }
-printf '%s\n' "$recs" | head -n 1 | grep -qF '"message":"m50"}' || { echo "FAIL: fixture e: the first record is not m50"; exit 1; }
+[ "$(printf '%s\n' "$recs" | wc -l | tr -d ' ')" = 30 ] || { echo "FAIL: fixture e: expected 30 records"; exit 1; }
+printf '%s\n' "$recs" | head -n 1 | grep -qF '"message":"m120"}' || { echo "FAIL: fixture e: the first record is not m120"; exit 1; }
 printf '%s\n' "$recs" | tail -n 1 | grep -qF '"message":"m149"}' || { echo "FAIL: fixture e: the last record is not m149"; exit 1; }
-[ "$(printf '%s' "$got" | field omitted)" = 50 ] || { echo "FAIL: fixture e: omitted is not 50: $got"; exit 1; }
+[ "$(printf '%s' "$got" | field omitted)" = 120 ] || { echo "FAIL: fixture e: omitted is not 120: $got"; exit 1; }
 
 # f. A --since without a dot reaches logcat with .0: logcat reads an all-digit -t as a line count (K29).
 : > "$fake/args"

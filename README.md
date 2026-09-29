@@ -1,8 +1,8 @@
 # Karagöz
 
-Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI today; an MCP server over the same core is planned so an AI agent can drive it.
+Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI, and `karagoz mcp` serves the same commands to an AI agent as an [MCP server](#mcp-server).
 
-> **Status: early development.** Twelve commands work on the Android emulator, and `doctor` reports the `adb` they use. The other three targets and the MCP server are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -31,6 +31,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   - [uninstall](#uninstall)
   - [logs](#logs)
   - [doctor](#doctor)
+- [MCP server](#mcp-server)
 - [Scope](#scope)
 - [Development](#development)
 - [Name](#name)
@@ -53,9 +54,9 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`uninstall`](#uninstall) | done | planned | planned | planned |
 | [`logs`](#logs) | done | planned | planned | planned |
 | [`doctor`](#doctor) | done | done | planned | planned |
-| MCP server | planned | | | |
+| [MCP server](#mcp-server) | done | | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. Physical Android devices go through the same `adb` calls, but no command has been tested on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. Physical Android devices go through the same `adb` calls, but no command has been tested on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -66,7 +67,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   3. `adb` on `PATH`
   4. Android Studio's default SDK: `~/Library/Android/sdk` on macOS, `~/Android/Sdk` on Linux, `%LOCALAPPDATA%\Android\Sdk` on Windows
 
-  An empty variable is skipped. The first `adb` that starts is used for the rest of the run, so a broken `adb` under `ANDROID_HOME` does not fall back to `PATH`. The exception is an `adb` that fails to start with `ENOENT` (a missing interpreter or a broken link): it counts as not there, and the next one is tried. [`karagoz doctor`](#doctor) shows which one is used and why. `install` needs platform-tools 30.0.0 or newer. When none is found:
+  An empty variable is skipped. The first `adb` that starts is used for the rest of the run, so a broken `adb` under `ANDROID_HOME` does not fall back to `PATH`. The exception is an `adb` that fails to start with `ENOENT` (a missing interpreter or a broken link): it counts as not there, and the next one is tried. Under `karagoz mcp` the run is the whole server session, and if the `adb` in use disappears (`ENOENT`), the next call looks it up again. An `adb` that appears mid-session higher in the list is not picked up until the server restarts. [`karagoz doctor`](#doctor) shows which one is used and why. `install` needs platform-tools 30.0.0 or newer. When none is found:
 
   ```json
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
@@ -84,7 +85,7 @@ Not on npm yet. From source:
 git clone https://github.com/yagizdo/karagoz.git
 cd karagoz
 npm install
-npm run build          # writes dist/cli.js
+npm run build          # writes dist/: cli.js and two chunks
 node dist/cli.js devices
 ```
 
@@ -143,7 +144,7 @@ To see the screen, read `ui-tree` before taking a screenshot. The tree is text a
 
 ## Output and errors
 
-Every command prints exactly one line of JSON on stdout and exits.
+Every command prints exactly one line of JSON on stdout and exits, except `mcp`, which speaks JSON-RPC on stdout until stdin closes ([MCP server](#mcp-server)).
 
 - **Success:** the command's result object, exit code `0`.
 - **Failure:** an error object, exit code `1`:
@@ -185,7 +186,7 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | --- | --- | --- |
 | `NO_COMMAND` | No command given. The message lists the commands. | all |
 | `UNKNOWN_COMMAND` | The command name is not known. | all |
-| `INVALID_ARGS` | Missing, extra, malformed or unknown arguments, an unknown key name, an APK path that is not an existing `.apk` file, a malformed package name, a `--since` that is not Unix time in seconds, or a `--lines` outside 1 to 999999999. | all |
+| `INVALID_ARGS` | Missing, extra, malformed or unknown arguments, an unknown key name, an APK path that is not an existing `.apk` file, a screenshot `--out` that does not end in `.png`, a malformed package name, a `--since` that is not Unix time in seconds, or a `--lines` outside 1 to 999999999. | all |
 | `ADB_NOT_FOUND` | No `adb` found. See [Requirements](#requirements). | all that reach adb, except `doctor`, which reports these in its output |
 | `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 10 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump. | all that reach adb, except `doctor`, which reports these in its output |
 | `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. For `logs`, logcat's own error text or output that is not whole log records. A device that disconnects mid-command ends here. | all that reach adb, except `doctor`, which reports these in its output |
@@ -223,6 +224,7 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | [`uninstall`](#uninstall) | Remove an app |
 | [`logs`](#logs) | Read the device log |
 | [`doctor`](#doctor) | Report which adb karagoz uses |
+| [`mcp`](#mcp-server) | Start the MCP server on stdio |
 
 ### devices
 
@@ -265,7 +267,7 @@ Saves the screen as a PNG at full device resolution, never scaled, and prints wh
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--out <path>` | a new file under the temp directory | Where to write the PNG. |
+| `--out <path>` | a new file under the temp directory | Where to write the PNG; must end in `.png`. |
 | `--device <id>` | see [Device selection](#device-selection) | |
 
 **Output**
@@ -287,14 +289,15 @@ Saves the screen as a PNG at full device resolution, never scaled, and prints wh
 **File location**
 
 - Without `--out`: `<temp dir>/karagoz/<device id>-<UTC timestamp>.png`, for example `/var/folders/.../T/karagoz/emulator-5554-20260926T101530123Z.png`. The temp directory follows `TMPDIR`. The `karagoz` directory is created private to your user (mode 0700) and must be a real directory you own; the file is created with mode 0600 and never overwrites. Characters other than letters, digits, `.`, `_` and `-` in the device id become `_`.
-- With `--out`: relative paths resolve against the current directory, missing parent directories are created, and an existing file is overwritten. The name is not checked, so use `.png`.
+- With `--out`: the path must end in `.png`, in any case, or the command fails with `INVALID_ARGS` before any device call. Relative paths resolve against the current directory, missing parent directories are created, and an existing `.png` is overwritten.
 - karagoz never deletes screenshots. One 1080x2400 capture is about 1.4 MB.
 
 **Errors**
 
 - `CAPTURE_FAILED`: screencap returned something other than a whole PNG (its message is included); the density, display size, rotation or insets could not be read (`cannot read <value> from <command>`); or the screen rotated or resized during the capture (`display is WxH but the screenshot is WxH`). With more than one display, screencap's warning comes back as `CAPTURE_FAILED`.
 - `WRITE_FAILED`: the file could not be written, or the default directory is not yours (`pass --out`). Two captures of one device in the same millisecond without `--out`: the second fails.
-- Plus the [device selection](#device-selection) errors, `INVALID_ARGS` and the adb errors.
+- `INVALID_ARGS`: `'<absolute path>' is not a .png file` for an `--out` that does not end in `.png`, before any device call.
+- Plus the [device selection](#device-selection) errors, the other `INVALID_ARGS` cases and the adb errors.
 
 **Notes**
 
@@ -669,7 +672,7 @@ Reads the device log once and prints the newest records as JSON. Each record is 
 | --- | --- | --- |
 | `--package <package>` | all records | Keep only the records written under this package's Linux user id (uid). |
 | `--since <seconds>` | the whole log | Unix time in seconds on the device clock, up to 9 decimals and at most 4294967295. Only records stamped later are read. |
-| `--lines <n>` | `100` | How many of the newest matching records to return, 1 to 999999999. |
+| `--lines <n>` | `30` | How many of the newest matching records to return, 1 to 999999999. |
 | `--device <id>` | see [Device selection](#device-selection) | |
 
 **Output**
@@ -719,7 +722,7 @@ Take the largest `time`, not the last record's: records are in arrival order, an
 
 - Logs read: main, system and crash, plus kernel from Android 11, logcat's defaults. The events log is not read.
 - The log is never cleared, resized or reconfigured, so other tools and the user keep their history. A call reads what is there and exits; nothing streams. To wait for a line, call again with `--since`.
-- The whole window is read from the device and filtered on the host, because logcat counts records before it filters by uid. A full log on the test emulator was 26 MB, about 133,000 records: `logs --lines 1` took 0.7 s, 0.8 s with `--package`. The default 100 records come to about 25 KB of JSON on average; a run of long stack traces can pass 30 KB.
+- The whole window is read from the device and filtered on the host, because logcat counts records before it filters by uid. A full log on the test emulator was 26 MB, about 133,000 records: `logs --lines 1` took 0.7 s, 0.8 s with `--package`. The default 30 records come to about 7 KB of JSON on average; over every 30-record window of a 141,000-record log, the largest was 47 KB.
 - `--package` matches the uid, not a process: every process of the app, every restart, and its Java and native crash lines. Lines the system server writes about the app, such as `Start proc` and `ANR in`, have uid 1000 and are not included. A package that shares a system uid, such as Settings, gets the other processes of that uid as well.
 - A record stamped at or before `--since` that the log daemon receives after the previous read is returned by neither call. Records arrived up to 8.4 ms late on the test emulator.
 - `--since` is on the device clock. The emulator keeps it in step with the host (within 55 ms here), so a host timestamp works there too.
@@ -776,6 +779,132 @@ The exit code is `0` whenever the report is printed, with adb missing or broken 
 - Took 0.1 s with two adbs; 1.4 s on a cold first run. A candidate that hangs costs 10 s, and the others run meanwhile.
 - Windows and Linux were not run.
 
+## MCP server
+
+```
+karagoz mcp
+```
+
+Starts an MCP server for an AI agent on stdin and stdout. It opens no port: the client starts the process and talks to it over stdio. The 13 commands are its tools, and each tool returns the JSON line the CLI prints. The server code loads only when `mcp` runs, so the other commands start as fast as before.
+
+`mcp` takes no arguments or options. It exits when stdin closes, or on SIGINT or SIGTERM.
+
+### Registration
+
+karagoz is not on npm yet, so every example runs the built file by its absolute path. After the first release, `npx -y karagoz mcp` replaces `node /abs/path/karagoz/dist/cli.js mcp`.
+
+Claude Code and Codex were run against this server. The Claude Desktop, Cursor and VS Code entries follow their documentation and were not run.
+
+**Claude Code**
+
+```sh
+claude mcp add karagoz -- node /abs/path/karagoz/dist/cli.js mcp
+```
+
+The server starts in the directory `claude` started in, with the shell's environment. A call still running after 2 minutes becomes a background task.
+
+**Claude Desktop**, in `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows; quit and restart Desktop after editing:
+
+```json
+{"mcpServers":{"karagoz":{"command":"node","args":["/abs/path/karagoz/dist/cli.js","mcp"],"env":{"ANDROID_HOME":"/Users/me/Library/Android/sdk"}}}}
+```
+
+Desktop starts servers with part of your environment and possibly `/` as the working directory, so set `ANDROID_HOME` in `env` when `adb` is not on the `PATH` it passes, and use absolute paths.
+
+**Cursor**, in `.cursor/mcp.json` in the project or `~/.cursor/mcp.json`:
+
+```json
+{"mcpServers":{"karagoz":{"type":"stdio","command":"node","args":["/abs/path/karagoz/dist/cli.js","mcp"]}}}
+```
+
+**VS Code**, in `.vscode/mcp.json` in the workspace:
+
+```json
+{"servers":{"karagoz":{"type":"stdio","command":"node","args":["/abs/path/karagoz/dist/cli.js","mcp"]}}}
+```
+
+or from the command line: `code --add-mcp '{"name":"karagoz","command":"node","args":["/abs/path/karagoz/dist/cli.js","mcp"]}'`.
+
+**Codex**, in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.karagoz]
+command = "node"
+args = ["/abs/path/karagoz/dist/cli.js", "mcp"]
+env_vars = ["ANDROID_HOME", "ANDROID_SDK_ROOT", "ANDROID_SERIAL"]
+tool_timeout_sec = 600
+```
+
+Codex passes a server only a short list of environment variables; `env_vars` forwards the ones karagoz reads. `tool_timeout_sec` covers long `tap` waits and big installs. `install` and `uninstall` ask for approval; `codex exec`, which never asks, refuses them with `MCP tool call requires approval, but approval policy is never`.
+
+### Tools
+
+| Tool | Command | Arguments | Marked |
+| --- | --- | --- | --- |
+| `devices` | [`devices`](#devices) | none | read-only |
+| `screenshot` | [`screenshot`](#screenshot) | `out`, `inline`, `device` | |
+| `ui_tree` | [`ui-tree`](#ui-tree) | `device` | read-only |
+| `tap` | [`tap`](#tap) | `x`, `y`, `text`, `id`, `duration`, `timeout`, `device` | |
+| `swipe` | [`swipe`](#swipe) | `x1`, `y1`, `x2`, `y2` (required), `duration`, `device` | |
+| `text` | [`text`](#text) | `text` (required), `device` | |
+| `key` | [`key`](#key) | `key` (required), `device` | |
+| `install` | [`install`](#install-1) | `apk` (required), `device` | destructive |
+| `launch` | [`launch`](#launch) | `package` (required), `device` | |
+| `terminate` | [`terminate`](#terminate) | `package` (required), `device` | |
+| `uninstall` | [`uninstall`](#uninstall) | `package` (required), `device` | destructive |
+| `logs` | [`logs`](#logs) | `package`, `since`, `lines`, `device` | read-only |
+| `doctor` | [`doctor`](#doctor) | none | read-only |
+
+"Marked" is the tool's annotation: `readOnlyHint` or `destructiveHint`. The other seven carry `destructiveHint: false`, and all 13 carry `openWorldHint: false` and a title. Clients use these to decide what needs approval and what may run in parallel.
+
+### Arguments
+
+- The names are the CLI's option and positional names: `tap {"x": 540, "y": 1200}` is `karagoz tap 540 1200`, and `logs {"lines": 5}` is `karagoz logs --lines 5`. `ui_tree` is the one renamed tool, because Codex turns `-` into `_`.
+- Values go through the CLI's own checks, as the text of the value (`12.5` is `12.5`), and the messages keep CLI syntax: `tap {"x": 1, "y": 2, "duration": 1.5}` fails with `--duration must be a whole number of milliseconds (got '1.5')`.
+- `null` counts as not given. An argument the tool does not take is refused: `'devices' does not take the option '--foo'`.
+- `inline` exists only here: `true` or `false`, else `INVALID_ARGS` `inline must be true or false (got 'yes')`.
+- `out` and `apk` should be absolute. A relative path resolves against the server's working directory, which the client picks.
+- `device` picks one of several devices. Without it the server uses `ANDROID_SERIAL` from its own environment, then the only device ([Device selection](#device-selection)). Codex passes `ANDROID_SERIAL` only through `env_vars`.
+
+### Results
+
+- Success: one text block with the command's JSON line.
+- Failure: `isError: true` and one text block with the CLI's error envelope. `karagoz: <message>` goes to stderr, as in the CLI.
+- An unknown tool name is a JSON-RPC error, `-32602` `Unknown tool: <name>`.
+- `screenshot` with `inline: true` adds the full-resolution PNG as an `image` block. Clients scale it before the model sees it (Claude Code sent a 1080x2400 capture as a JPEG), so take coordinates from `ui_tree` bounds, or from `pixels` and `scale`, never from the image.
+
+A real exchange, one line per message, `-->` sent and `<--` received. The `data` string is cut.
+
+```
+--> {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"devices","arguments":{}}}
+<-- {"result":{"content":[{"type":"text","text":"{\"devices\":[{\"id\":\"emulator-5554\",\"platform\":\"android\",\"kind\":\"emulator\",\"state\":\"device\",\"name\":\"Medium_Phone_API_36.1\"}]}"}]},"jsonrpc":"2.0","id":2}
+--> {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"tap","arguments":{"x":1}}}
+<-- {"result":{"content":[{"type":"text","text":"{\"error\":{\"code\":\"INVALID_ARGS\",\"message\":\"'tap' needs <x> <y>\"}}"}],"isError":true},"jsonrpc":"2.0","id":3}
+--> {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"screenshot","arguments":{"out":"/Users/me/home.png","inline":true}}}
+<-- {"result":{"content":[{"type":"text","text":"{\"path\":\"/Users/me/home.png\",\"device\":\"emulator-5554\",\"pixels\":{\"width\":1080,\"height\":2400},\"logical\":{\"width\":411.42857142857144,\"height\":914.2857142857143},\"scale\":2.625,\"safeArea\":{\"top\":63,\"right\":0,\"bottom\":63,\"left\":0},\"rotation\":0}"},{"type":"image","data":"iVBORw0KGgoAAAANSUhEUgAABDgAAAlgCAYAAABt...","mimeType":"image/png"}]},"jsonrpc":"2.0","id":4}
+--> {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ui-tree","arguments":{}}}
+<-- {"jsonrpc":"2.0","id":5,"error":{"code":-32602,"message":"Unknown tool: ui-tree"}}
+```
+
+### Behavior
+
+- Calls run in parallel, except UiAutomation reads (`ui_tree`, and `tap` with `text` or `id`), which take turns per device inside one server. Another process that holds UiAutomation still causes `AUTOMATION_BUSY`.
+- A cancelled call kills its adb child at once and gets no response. The device does not stop with it: it keeps its UiAutomation slot for about 1-2 s, so a `ui_tree` right after can get `AUTOMATION_BUSY`; a gesture already sent finishes on the device; and a cancelled `install` may leave the app installed. Esc in Claude Code cancels the running call: the adb dump was gone within 0.3 s and the server kept running.
+- stdin closing, SIGINT and SIGTERM cancel every call the same way; the process exits with `0`, `130` and `143`.
+- The server keeps the `adb` it found for the whole session. If that file disappears (`ENOENT`), the next call looks it up again.
+
+### Token cost
+
+What the server adds to a Claude Code session, measured on this build on 2026-09-29 with Claude Code 2.1.284 and `claude-opus-5-5`: input tokens of the first API call with karagoz registered, minus the same call with no MCP server.
+
+| Case | Tokens |
+| --- | --- |
+| Every session, tool search on (the default): the 13 tool names and `instructions` | 331 |
+| All 13 definitions, loaded by one `ToolSearch` call | 2,247 |
+| Every session, tool search off (`ENABLE_TOOL_SEARCH=false`): every definition and `instructions` | 2,129 |
+
+The `tools/list` result is 5,682 characters and `instructions` 383. One `ui_tree` of the launcher home screen is 5,383 characters.
+
 ## Scope
 
 karagoz is the primitive layer. Each command does one thing and exits.
@@ -786,18 +915,24 @@ karagoz is the primitive layer. Each command does one thing and exits.
 ## Development
 
 ```sh
-npm run build       # bundle to dist/cli.js
+npm run build       # empty dist/, then bundle to dist/cli.js and two chunks
 npm run typecheck
 npm run lint        # oxlint and the Prettier check; npm run format fixes formatting
 ```
 
-Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, except `smoke/1.7-doctor.sh`, which uses fake `adb` scripts only and never runs the real adb. The header of each script lists its preconditions:
+Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh` and `smoke/1.7-doctor.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb. The header of each script lists its preconditions:
 
 ```sh
 sh smoke/1.4-input.sh
 ```
 
 `smoke/1.5-app-lifecycle.sh` also builds a test APK on every run, from the manifest in `smoke/fixtures/app-lifecycle/`, and installs and removes it as `dev.karagoz.smoke`. No APK is kept in the repository. It needs a JDK (`java` and `keytool` on `PATH`) and, from the Android SDK, build-tools with `aapt2` and `apksigner` plus one platform. The SDK is the first of `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Library/Android/sdk` and `~/Android/Sdk` that has both `build-tools/` and `platforms/`. When something is missing the smoke fails and says what, rather than skipping.
+
+The full check, with the emulator running:
+
+```sh
+npm run typecheck && npm run lint && for s in smoke/*.sh; do sh "$s" || exit 1; done
+```
 
 ## Name
 
