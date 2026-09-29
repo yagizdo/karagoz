@@ -1,5 +1,5 @@
 import { KaragozError } from '../../errors.js';
-import { adb, TIMEOUT_MS } from './adb.js';
+import { adb, cancellation, TIMEOUT_MS } from './adb.js';
 import { resolveTarget } from './devices.js';
 import { readTree, type UiNode } from './ui-tree.js';
 
@@ -112,6 +112,8 @@ async function locate(id: string, selector: Selector, timeout: number) {
       : `resourceId '${selector.id}' or ending in ':id/${selector.id}'`;
   const start = performance.now();
   for (let reads = 1; ; reads++) {
+    // Without it a cancelled wait keeps reading for its whole timeout and blocks every other read on the device (K31).
+    cancellation.getStore()?.throwIfAborted();
     const [{ root }, keys] = await Promise.all([readTree(id), keyboard(id)]);
     const found = collect(root, selector, []);
     if (found.length > 1) {
@@ -191,6 +193,7 @@ export async function text(device: string | undefined, value: string) {
   for (const part of value.split(/(?<=%)(?=s)/)) {
     for (let at = 0; at < part.length; at += CHUNK) {
       const slice = part.slice(at, at + CHUNK);
+      cancellation.getStore()?.throwIfAborted();
       try {
         await send(id, ['text', slice]);
       } catch (err) {

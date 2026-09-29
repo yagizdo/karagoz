@@ -3,8 +3,9 @@ import { adb, adbBytes } from './adb.js';
 import { checkPackage } from './app.js';
 import { resolveTarget } from './devices.js';
 
-// ~24 KB of JSON, under the ~30,000 characters an agent's shell tool shows inline (K29).
-const LINES = 100;
+// At 100, 46.5% of measured windows passed the ~10k tokens where Codex cuts a result and Claude Code warns; at 30,
+// 0.2% (K29).
+const LINES = 30;
 
 // LOGGER_ENTRY_MAX_LEN: no entry, header included, is longer (K29).
 const MAX_ENTRY = 5120;

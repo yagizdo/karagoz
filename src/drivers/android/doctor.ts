@@ -1,5 +1,5 @@
 import { lstatSync } from 'node:fs';
-import { candidates, INSTALL_HINT, onPath, skipped, type Source, TIMEOUT_MS, version } from './adb.js';
+import { cachedAdb, candidates, INSTALL_HINT, onPath, skipped, type Source, TIMEOUT_MS, version } from './adb.js';
 
 // doctor never sets adb.ts's resolved and never talks to the adb server: it only runs `adb version` (K30).
 
@@ -79,9 +79,14 @@ function reason(err: Error): string {
 }
 
 export async function doctor(): Promise<Report> {
-  const probes = await Promise.all(candidates().map(({ source, bin }) => probe(source, bin)));
+  const sources = candidates();
+  const probes = await Promise.all(sources.map(({ source, bin }) => probe(source, bin)));
   const list = probes.map(({ candidate }) => candidate);
-  const used = probes.find((probe) => probe.used)?.candidate;
+  // The cached adb stays in use while it starts, even after an earlier candidate appears; the CLI never has one.
+  const cached = cachedAdb();
+  const kept =
+    probes[sources.findIndex(({ bin }) => cached !== undefined && (bin === 'adb' ? onPath() : bin) === cached)];
+  const used = (kept?.used ? kept : probes.find((probe) => probe.used))?.candidate;
   if (!used) return { adb: { status: 'missing', install: INSTALL_HINT, candidates: list } };
   const { source, status, ...fields } = used;
   return {

@@ -1,5 +1,5 @@
 import { KaragozError } from '../../errors.js';
-import { adb } from './adb.js';
+import { adb, cancellation } from './adb.js';
 import { resolveTarget } from './devices.js';
 
 // uiautomator's own idle failure arrives after 11.3-12.2 s (measured), and a client killed at 10 s leaves the device
@@ -170,14 +170,36 @@ async function read(id: string) {
   }
 }
 
+// Each serial's last read. One UiAutomation client per device (K24) and the server runs calls in parallel, so reads of
+// one serial wait in arrival order; another process still gets AUTOMATION_BUSY. One emulator attached twice
+// (adb connect) has two serials and two queues (K31, K21).
+const turns = new Map<string, Promise<void>>();
+
+function readInTurn(id: string) {
+  const signal = cancellation.getStore();
+  const turn = (turns.get(id) ?? Promise.resolve()).then(() => {
+    signal?.throwIfAborted();
+    return read(id);
+  });
+  const tail = turn.then(
+    () => undefined,
+    () => undefined,
+  );
+  turns.set(id, tail);
+  void tail.then(() => {
+    if (turns.get(id) === tail) turns.delete(id);
+  });
+  return turn;
+}
+
 // One tree of a resolved serial; tap reads it too (K26).
 export async function readTree(id: string): Promise<{ rotation: number; root: UiNode }> {
-  let result = await read(id);
+  let result = await readInTurn(id);
   // Chromium builds a WebView's tree only after the first request, so a fresh WebView reads empty once (5 of 5
   // measured). One more read, never more (K24).
   if (result.emptyWebView) {
     try {
-      result = await read(id);
+      result = await readInTurn(id);
     } catch (err) {
       if (!(err instanceof KaragozError)) throw err;
       // The first read was valid; the extra one may only improve it, never turn it into an error.

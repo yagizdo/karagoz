@@ -78,6 +78,11 @@ function parseDisplay(text: string) {
 }
 
 export async function screenshot(device: string | undefined, out: string | undefined) {
+  const target = out === undefined ? undefined : resolve(out);
+  // A model picks this path over MCP; only a .png gets overwritten (K22).
+  if (target !== undefined && !target.toLowerCase().endsWith('.png')) {
+    throw new KaragozError('INVALID_ARGS', `'${target}' is not a .png file`);
+  }
   const id = await resolveTarget(device);
   // The metadata calls take ~65 ms each against a ~700 ms capture (measured), so in parallel they add nothing.
   const [png, density, dump] = await Promise.all([
@@ -110,10 +115,10 @@ export async function screenshot(device: string | undefined, out: string | undef
   // ':' is invalid in Windows file names, and `adb connect` serials contain it (127.0.0.1:5555).
   const safeId = id.replace(/[^A-Za-z0-9._-]/g, '_');
   const stamp = new Date().toISOString().replace(/[-:.]/g, '');
-  const path = out === undefined ? join(tmpdir(), 'karagoz', `${safeId}-${stamp}.png`) : resolve(out);
+  const path = target ?? join(tmpdir(), 'karagoz', `${safeId}-${stamp}.png`);
   try {
     const dir = dirname(path);
-    if (out === undefined) {
+    if (target === undefined) {
       // On Linux tmpdir() is the shared /tmp: another user could create karagoz/ first, or plant a symlink at the
       // predictable file name. The directory must be the caller's own, and the write refuses anything already at
       // the path. --out is left alone, the caller picked it.
