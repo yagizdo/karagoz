@@ -17,12 +17,14 @@ code_of() { node -e '
   try { console.log(out.includes("\n") ? "not-one-line" : JSON.parse(out).error.code) } catch { console.log("not-json") }
 '; }
 
-# 1. A ready emulator, named.
+# 1. A ready emulator, named. Only its entry is printed: the full list names any phone attached (CLAUDE.md, Device data).
 out=$(node dist/cli.js devices) || { echo "FAIL: devices exited non-zero: $out"; exit 1; }
-echo "$out" | node -e '
+emu=$(echo "$out" | node -e '
   const { devices } = JSON.parse(require("fs").readFileSync(0, "utf8"));
-  process.exit(devices.some((d) => d.kind === "emulator" && d.state === "device" && typeof d.name === "string" && d.name) ? 0 : 1);
-' || { echo "FAIL: no ready, named emulator in: $out (is one running? emulator -avd <name>)"; exit 1; }
+  const found = devices.find((d) => d.kind === "emulator" && d.state === "device" && typeof d.name === "string" && d.name);
+  if (!found) process.exit(1);
+  console.log(JSON.stringify(found));
+') || { echo "FAIL: no ready, named emulator listed (is one running? emulator -avd <name>)"; exit 1; }
 
 # 2. No adb anywhere: empty PATH, no SDK env, HOME without a default SDK.
 if miss=$(env -i HOME="$tmp" PATH="$tmp" "$node_bin" dist/cli.js devices 2>/dev/null); then echo "FAIL: missing adb exited 0"; exit 1; fi
@@ -38,4 +40,4 @@ elapsed=$(($(date +%s) - start))
 [ "$(echo "$hang" | code_of)" = ADB_TIMEOUT ] || { echo "FAIL: expected ADB_TIMEOUT, got: $hang"; exit 1; }
 [ "$elapsed" -lt 15 ] || { echo "FAIL: timeout took ${elapsed}s"; exit 1; }
 
-echo "ok: $out"
+echo "ok: $emu"
