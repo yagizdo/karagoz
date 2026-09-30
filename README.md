@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI, and `karagoz mcp` serves the same commands to an AI agent as an [MCP server](#mcp-server).
 
-> **Status: early development.** Twelve commands work on the Android emulator, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, `devices` also works on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -41,7 +41,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 
 | Command | Android emulator | Android device | iOS simulator | iOS device |
 | --- | --- | --- | --- | --- |
-| [`devices`](#devices) | done | planned | planned | planned |
+| [`devices`](#devices) | done | done | planned | planned |
 | [`screenshot`](#screenshot) | done | planned | planned | planned |
 | [`ui-tree`](#ui-tree) | done | planned | planned | planned |
 | [`tap`](#tap) | done | planned | planned | planned |
@@ -56,7 +56,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`doctor`](#doctor) | done | done | planned | planned |
 | [MCP server](#mcp-server) | done | | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. Physical Android devices go through the same `adb` calls, but no command has been tested on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices` was tested on a physical Samsung phone (Android 14) over USB; no other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -73,7 +73,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
   ```
 
-- **A running emulator** (`emulator -avd <name>`) in state `device`. karagoz installs nothing on it by itself; `install` installs only the APK you pass it.
+- **A running emulator** (`emulator -avd <name>`), or for `devices`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
 - For the `smoke/1.5-app-lifecycle.sh` script only: a JDK and Android SDK build-tools with one platform. The smoke builds its own test APK, `dev.karagoz.smoke`, and removes it at the end. See [Development](#development).
 - For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked.
 
@@ -119,18 +119,18 @@ Every command except `devices` works on one device, picked in this order:
 2. the `ANDROID_SERIAL` environment variable (ignored when `--device` is given; empty counts as unset)
 3. the only listed device
 
-The value is matched against adb serials first (`emulator-5554`), exactly. If no serial matches, it is matched against the AVD names of running emulators (`Medium_Phone_API_36.1`), exactly and case-sensitively.
+The value is matched against adb serials first (`emulator-5554`), exactly. If no serial matches, it is matched against every `name` that [`devices`](#devices) prints: an emulator's AVD name (`Medium_Phone_API_36.1`) or a phone's model (`SM-S908N`), exactly and case-sensitively.
 
 | Situation | Error |
 | --- | --- |
 | A value is given and nothing matches | `DEVICE_NOT_FOUND`, listing what is connected |
 | No value, nothing connected | `NO_DEVICE` |
-| No value and two or more devices listed (in any state), or an AVD name that matches two emulators | `DEVICE_AMBIGUOUS` |
+| No value and two or more devices listed (in any state), or a name that matches two entries: the same AVD listed as `emulator-5554` and `127.0.0.1:5555`, or two phones of the same model | `DEVICE_AMBIGUOUS` |
 | The picked device is not in state `device` (`offline`, `unauthorized`, ...) | `DEVICE_NOT_READY` |
 
 karagoz never guesses between devices. There is no config file and no other environment variable.
 
-An emulator attached with `adb connect`, and Genymotion, list as `physical` and can only be picked by serial.
+A phone connected over Wi-Fi as well as USB is listed twice, once per serial, and its model matches both: pick it by serial then. Quote a `--device` value that contains spaces, as some mDNS serials do.
 
 ### Coordinates
 
@@ -150,7 +150,7 @@ Every command prints exactly one line of JSON on stdout and exits, except `mcp`,
 - **Failure:** an error object, exit code `1`:
 
   ```json
-  {"error":{"code":"DEVICE_NOT_FOUND","message":"device 'nosuch' from --device matches no serial or AVD name. Listed: emulator-5554 (Medium_Phone_API_36.1)."}}
+  {"error":{"code":"DEVICE_NOT_FOUND","message":"device 'nosuch' from --device matches no serial or device name. Listed: emulator-5554 (Medium_Phone_API_36.1)."}}
   ```
 
   The same message goes to stderr as `karagoz: <message>`. It can span more than one line when it quotes adb or Node output; the stdout line never does.
@@ -192,7 +192,7 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. For `logs`, logcat's own error text or output that is not whole log records. A device that disconnects mid-command ends here. | all that reach adb, except `doctor`, which reports these in its output |
 | `NO_DEVICE` | No device connected and none named. | all but `devices` and `doctor` |
 | `DEVICE_NOT_FOUND` | The named device is not connected. | all but `devices` and `doctor` |
-| `DEVICE_AMBIGUOUS` | More than one device and none named. | all but `devices` and `doctor` |
+| `DEVICE_AMBIGUOUS` | More than one device and none named, or a name that matches more than one. | all but `devices` and `doctor` |
 | `DEVICE_NOT_READY` | The device is `offline`, `unauthorized` or similar. | all but `devices` and `doctor` |
 | `CAPTURE_FAILED` | The screen could not be read: bad screenshot data, missing display info, or a uiautomator failure. The message says which. | `screenshot`, `ui-tree`, `tap --text/--id` |
 | `AUTOMATION_BUSY` | Another UiAutomation client holds the device. | `ui-tree`, `tap --text/--id` |
@@ -240,13 +240,19 @@ Lists what `adb devices` lists. Takes no options.
 {"devices":[{"id":"emulator-5554","platform":"android","kind":"emulator","state":"device","name":"Medium_Phone_API_36.1"}]}
 ```
 
+A phone on USB next to the emulator (serial masked):
+
+```json
+{"devices":[{"id":"XXXXXXXXXXX","platform":"android","kind":"physical","state":"device","name":"SM-S908N"},{"id":"emulator-5554","platform":"android","kind":"emulator","state":"device","name":"Medium_Phone_API_36.1"}]}
+```
+
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `id` | string | The adb serial. Pass it to `--device`. |
 | `platform` | `"android"` | |
-| `kind` | `"emulator"` or `"physical"` | `emulator` when the id is `emulator-<port>`. |
+| `kind` | `"emulator"` or `"physical"` | `emulator` when the id is `emulator-<port>`, or when the device reports `ro.boot.qemu` or `ro.kernel.qemu` as `1`, or `ro.hardware` as `ranchu` or `goldfish` (an emulator attached with `adb connect`). Genymotion, and other ids not in state `device`, read as `physical`. |
 | `state` | string | adb's state, unchanged: `device`, `offline`, `unauthorized`, ... Only `device` can be used. |
-| `name` | string or `null` | The AVD name for emulators, `null` otherwise or when the emulator does not answer. |
+| `name` | string or `null` | The AVD name for emulators, the model (`ro.product.model`) for phones. `null` when the device does not answer, or when it is not in state `device` and its id is not `emulator-<port>`. |
 
 No devices is not an error: `{"devices":[]}`, exit `0`. Devices keep adb's order.
 
@@ -254,7 +260,9 @@ No devices is not an error: `{"devices":[]}`, exit `0`. Devices keep adb's order
 
 **Notes**
 
-- About 55 ms, plus about 50 ms per emulator for its name, asked in parallel.
+- About 55 ms, plus about 50 ms per emulator for its name, asked in parallel. A device whose id is not `emulator-<port>` costs one more call in parallel, a chained `getprop` of about 135 ms. With a phone on USB and one emulator, the whole `karagoz devices` run took 257 to 289 ms (three runs, macOS).
+- A device listed as `(no serial number)`, or two devices that share one serial, cannot be targeted: adb's `-s` cannot tell them apart.
+- karagoz does not pair or connect over Wi-Fi. Use `adb pair` and `adb connect`; a paired Android 11+ phone reconnects by itself.
 - If an emulator's name comes back `null`, check that `HOME` points to your home directory; the emulator console reads a token from there.
 
 ### screenshot
