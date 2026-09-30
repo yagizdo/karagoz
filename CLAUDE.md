@@ -31,6 +31,8 @@ Research is never skipped. When an existing assumption conflicts with what the r
 
 **Dependencies.** Standard library first — `node:util` `parseArgs` over a CLI framework, `node:child_process` over a process wrapper, global `fetch` over an HTTP client. When a dependency is genuinely needed, prefer one with no transitive dependencies, import it through subpaths, and judge the cost by what lands in the bundle rather than by the size of `node_modules`. No native addons. External tools (`adb`, `xcrun`, and the iOS tunnel) are detected at runtime and reported with a clear installation message when missing; they are never bundled.
 
+**Device data.** Nothing read from a real phone that could identify it or its owner reaches a tracked file, a commit message, a PR, an issue, or any other public text. This holds for every phone, whoever owns it. That means serial numbers (also inside mDNS names such as `adb-<serial>-<id>`), IMEI, MAC and IP addresses, the user-set device name, accounts, phone numbers, and everything read off the screen: screenshots, `ui-tree` output, logs, and installed packages. A README example taken from a phone replaces each such value (`XXXXXXXXXXX`); screen content from a phone never appears in one. Model, brand, and Android version are product facts and may appear. Real values stay in the untracked `docs/local/`.
+
 **Licensing.** MIT. Dependencies must be MIT, ISC, BSD, Apache-2.0 or BlueOak. No copyleft, and no source-available licenses with commercial use restrictions.
 
 **MCP imports.** Only these two, from `@modelcontextprotocol/server` v2:
