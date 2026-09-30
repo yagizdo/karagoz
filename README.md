@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI, and `karagoz mcp` serves the same commands to an AI agent as an [MCP server](#mcp-server).
 
-> **Status: early development.** Twelve commands work on the Android emulator, `devices` also works on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, `devices` and `screenshot` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -42,7 +42,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | Command | Android emulator | Android device | iOS simulator | iOS device |
 | --- | --- | --- | --- | --- |
 | [`devices`](#devices) | done | done | planned | planned |
-| [`screenshot`](#screenshot) | done | planned | planned | planned |
+| [`screenshot`](#screenshot) | done | done | planned | planned |
 | [`ui-tree`](#ui-tree) | done | planned | planned | planned |
 | [`tap`](#tap) | done | planned | planned | planned |
 | [`swipe`](#swipe) | done | planned | planned | planned |
@@ -56,7 +56,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`doctor`](#doctor) | done | done | planned | planned |
 | [MCP server](#mcp-server) | done | | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices` was tested on a physical Samsung phone (Android 14) over USB; no other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices` and `screenshot` were tested on a physical Samsung phone (Android 14) over USB; no other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -73,7 +73,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
   ```
 
-- **A running emulator** (`emulator -avd <name>`), or for `devices`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
+- **A running emulator** (`emulator -avd <name>`), or for `devices` and `screenshot`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
 - For the `smoke/1.5-app-lifecycle.sh` script only: a JDK and Android SDK build-tools with one platform. The smoke builds its own test APK, `dev.karagoz.smoke`, and removes it at the end. See [Development](#development).
 - For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked.
 
@@ -309,8 +309,8 @@ Saves the screen as a PNG at full device resolution, never scaled, and prints wh
 
 **Notes**
 
-- About 1 s.
-- A screen that is off, or an app that sets `FLAG_SECURE`, gives a black PNG and exit `0`.
+- About 1 s on the emulator, about 0.5 s on a phone over USB.
+- A screen that is off, or an app that sets `FLAG_SECURE`, gives a black PNG and exit `0`. Some Android 14 builds refuse the capture instead while a `FLAG_SECURE` window or the lock screen's PIN pad is showing: `CAPTURE_FAILED` with `screencap returned no data`.
 - If the density changes during a capture, `scale` and `safeArea` can disagree for that one capture.
 
 ### ui-tree
@@ -928,7 +928,7 @@ npm run typecheck
 npm run lint        # oxlint and the Prettier check; npm run format fixes formatting
 ```
 
-Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh` and `smoke/1.7-doctor.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb. The header of each script lists its preconditions:
+Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh` and `smoke/2.2-screenshot-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2 needs a phone only for its phone step, which it skips when none is listed. The header of each script lists its preconditions:
 
 ```sh
 sh smoke/1.4-input.sh
