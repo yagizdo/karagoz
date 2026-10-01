@@ -185,7 +185,7 @@ if got=$(run_fake "$busy_a11y" "$fx/b.txt"); then echo "FAIL: fixture b exited 0
 error_is b CAPTURE_FAILED "the screen did not go idle within uiautomator's 10 s wait (an animation or live content kept changing it); uiautomator: ERROR: could not get idle state."
 printf 'ERROR: null root node returned by UiTestAutomationBridge.\n' > "$fx/c.txt"
 if got=$(run_fake "$busy_a11y" "$fx/c.txt"); then echo "FAIL: fixture c exited 0"; exit 1; fi
-error_is c CAPTURE_FAILED "no focused window to read (is the screen off, or is an app still starting?); uiautomator: ERROR: null root node returned by UiTestAutomationBridge."
+error_is c CAPTURE_FAILED "no focused window to read (is the screen off, is an app still starting, or is the app in a work profile or Secure Folder, which adb cannot read?); uiautomator: ERROR: null root node returned by UiTestAutomationBridge."
 
 # d, e. Killed: the slot decides between AUTOMATION_BUSY and CAPTURE_FAILED.
 printf 'Killed \n' > "$fx/killed.txt"
