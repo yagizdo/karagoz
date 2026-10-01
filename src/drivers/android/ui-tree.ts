@@ -132,7 +132,7 @@ async function failure(id: string, out: string): Promise<KaragozError> {
   if (out.includes(NULL_ROOT)) {
     return new KaragozError(
       'CAPTURE_FAILED',
-      `no focused window to read (is the screen off, or is an app still starting?); uiautomator: ${NULL_ROOT}`,
+      `no focused window to read (is the screen off, is an app still starting, or is the app in a work profile or Secure Folder, which adb cannot read?); uiautomator: ${NULL_ROOT}`,
     );
   }
   try {

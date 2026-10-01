@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI, and `karagoz mcp` serves the same commands to an AI agent as an [MCP server](#mcp-server).
 
-> **Status: early development.** Twelve commands work on the Android emulator, `devices` and `screenshot` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot` and `ui-tree` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -43,7 +43,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | --- | --- | --- | --- | --- |
 | [`devices`](#devices) | done | done | planned | planned |
 | [`screenshot`](#screenshot) | done | done | planned | planned |
-| [`ui-tree`](#ui-tree) | done | planned | planned | planned |
+| [`ui-tree`](#ui-tree) | done | done | planned | planned |
 | [`tap`](#tap) | done | planned | planned | planned |
 | [`swipe`](#swipe) | done | planned | planned | planned |
 | [`text`](#text) | done | planned | planned | planned |
@@ -56,7 +56,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`doctor`](#doctor) | done | done | planned | planned |
 | [MCP server](#mcp-server) | done | | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices` and `screenshot` were tested on a physical Samsung phone (Android 14) over USB; no other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB; no other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -73,7 +73,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
   ```
 
-- **A running emulator** (`emulator -avd <name>`), or for `devices` and `screenshot`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
+- **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot` and `ui-tree`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
 - For the `smoke/1.5-app-lifecycle.sh` script only: a JDK and Android SDK build-tools with one platform. The smoke builds its own test APK, `dev.karagoz.smoke`, and removes it at the end. See [Development](#development).
 - For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked.
 
@@ -345,10 +345,10 @@ Node fields, in this order:
 | --- | --- | --- |
 | `class` | always | Android class, e.g. `android.widget.Button`. Can be empty. |
 | `package` | on the root, and on any node whose package differs from its parent's | App package. |
-| `text`, `contentDesc`, `resourceId`, `hint` | when not empty | `resourceId` is the full form, `com.example:id/save`. `hint` exists only from API 36. |
+| `text`, `contentDesc`, `resourceId`, `hint` | when not empty | `resourceId` is the full form, `com.example:id/save`. `hint` exists from Android 15 QPR2 (some API 35 images) on. |
 | `checkable`, `checked`, `clickable`, `longClickable`, `focusable`, `focused`, `scrollable`, `selected`, `password` | only when `true` | |
 | `enabled` | only when `false` | |
-| `bounds` | always | `[left, top, right, bottom]` in [screen pixels](#coordinates). Can be negative for nodes partly off screen. |
+| `bounds` | always | `[left, top, right, bottom]` in [screen pixels](#coordinates). Clipped to the screen: a node wholly off screen is `[0,0,0,0]`, and bottom can be above top. |
 | `children` | when the node has any | Nodes, same shape. |
 
 Other attributes that uiautomator prints (`index`, `drawing-order`, `NAF`) are dropped. Every node uiautomator returns is kept; there is no filtering.
@@ -361,7 +361,7 @@ What the tree covers is what uiautomator covers: the focused window, and nodes v
 
 - `CAPTURE_FAILED`, with the reason in the message:
   - the screen kept changing for uiautomator's 10 s idle wait (an animation or live content);
-  - no focused window (the screen is off, or an app is still starting);
+  - no focused window (the screen is off, an app is still starting, or the app is in a work profile or Secure Folder, which adb cannot read);
   - uiautomator was killed (the message names `adb -s <id> logcat -b crash`); a lone UTF-16 surrogate in on-screen text does this;
   - the output could not be parsed.
 - `AUTOMATION_BUSY`: another UiAutomation client is connected. Only one can be at a time.
@@ -372,7 +372,7 @@ What the tree covers is what uiautomator covers: the focused window, and nodes v
 
 - One read takes 2.4 to 3.3 s; a screen with a fresh WebView about 5.3 s. The idle failure arrives after about 12 s.
 - Output size on real screens was 560 to 3,900 tokens.
-- While a read runs, accessibility services such as TalkBack are unbound, and apps see accessibility as enabled.
+- While a read runs, accessibility services such as TalkBack are unbound, and apps see accessibility as enabled. A service that requests the accessibility button is taken off the button and shortcut and stays off; add it back in the accessibility settings.
 
 ### tap
 
@@ -928,7 +928,7 @@ npm run typecheck
 npm run lint        # oxlint and the Prettier check; npm run format fixes formatting
 ```
 
-Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh` and `smoke/2.2-screenshot-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2 needs a phone only for its phone step, which it skips when none is listed. The header of each script lists its preconditions:
+Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh` and `smoke/2.3-ui-tree-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2 and 2.3 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
 
 ```sh
 sh smoke/1.4-input.sh
