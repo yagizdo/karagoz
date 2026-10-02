@@ -21,12 +21,31 @@ const TYPABLE = /^[\x20-\x7e\n\tçÇß]$/;
 // Cold typing measured ~20-30 ms per character, so a chunk stays well inside adb's 10 s timeout (K25).
 const CHUNK = 100;
 
+// Invisible direction marks, Unicode's Bidi_Control set. One UI's Settings wraps Bluetooth and Wi-Fi Direct names in
+// U+200E (Samsung Settings source), which nobody can type from the screen, so --text ignores them on both sides (K26).
+const BIDI = /\p{Bidi_Control}/gu;
+
+// Every input call fails this way when MIUI/HyperOS or vivo deny INJECT_EVENTS to shell (K25).
+const BLOCKED =
+  'the device does not let adb inject input (SecurityException: INJECT_EVENTS permission); on Xiaomi, Redmi and POCO turn on Developer options > USB debugging (Security settings), on vivo and iQOO turn on USB simulated click; retrying does not help';
+
 // adb's own escape_arg rule (K25): mksh expands nothing inside single quotes.
 const quote = (arg: string) => `'${arg.replaceAll("'", "'\\''")}'`;
 
 // shell, not exec-out: exec-out drops the exit status, and input's 255 is the only failure it reports (K25).
 async function send(id: string, args: string[], timeout?: number): Promise<void> {
-  await adb(['-s', id, 'shell', 'input', ...args.map(quote)], timeout);
+  try {
+    await adb(['-s', id, 'shell', 'input', ...args.map(quote)], timeout);
+  } catch (err) {
+    if (
+      err instanceof KaragozError &&
+      err.code === 'ADB_FAILED' &&
+      err.message.includes('SecurityException') &&
+      err.message.includes('INJECT_EVENTS permission')
+    )
+      throw new KaragozError('INPUT_BLOCKED', BLOCKED);
+    throw err;
+  }
 }
 
 // Digits are always a code, as in Android's keyCodeFromString: 7 is KEYCODE_0, the 7 key is KEYCODE_7. 0 is refused:
@@ -70,9 +89,15 @@ function area(node: UiNode): [number, number, number, number] | undefined {
   return r > l && b > t ? [l, t, r, b] : undefined;
 }
 
-// Whole string, case-sensitive (K26). Compose puts a label in text and Flutter in contentDesc, so --text reads both.
+// Whole string, case-sensitive, direction marks aside (K26). Compose puts a label in text and Flutter in contentDesc, so
+// --text reads both.
 function matches(node: UiNode, selector: Selector): boolean {
-  if (selector.kind === 'text') return node.text === selector.label || node.contentDesc === selector.label;
+  if (selector.kind === 'text') {
+    const label = selector.label.replaceAll(BIDI, '');
+    return [node.text, node.contentDesc].some(
+      (value) => typeof value === 'string' && value.replaceAll(BIDI, '') === label,
+    );
+  }
   const resourceId = node.resourceId;
   return typeof resourceId === 'string' && (resourceId === selector.id || resourceId.endsWith(`:id/${selector.id}`));
 }

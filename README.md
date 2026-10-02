@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI, and `karagoz mcp` serves the same commands to an AI agent as an [MCP server](#mcp-server).
 
-> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot` and `ui-tree` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text` and `key` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -44,10 +44,10 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`devices`](#devices) | done | done | planned | planned |
 | [`screenshot`](#screenshot) | done | done | planned | planned |
 | [`ui-tree`](#ui-tree) | done | done | planned | planned |
-| [`tap`](#tap) | done | planned | planned | planned |
-| [`swipe`](#swipe) | done | planned | planned | planned |
-| [`text`](#text) | done | planned | planned | planned |
-| [`key`](#key) | done | planned | planned | planned |
+| [`tap`](#tap) | done | done | planned | planned |
+| [`swipe`](#swipe) | done | done | planned | planned |
+| [`text`](#text) | done | done | planned | planned |
+| [`key`](#key) | done | done | planned | planned |
 | [`install`](#install-1) | done | planned | planned | planned |
 | [`launch`](#launch) | done | planned | planned | planned |
 | [`terminate`](#terminate) | done | planned | planned | planned |
@@ -56,7 +56,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`doctor`](#doctor) | done | done | planned | planned |
 | [MCP server](#mcp-server) | done | | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB; no other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text` and `key` on an Infinix phone (Android 12) over USB; `screenshot` does not work on Android 12 yet (it cannot read the safe area). No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -73,9 +73,9 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
   ```
 
-- **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot` and `ui-tree`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
+- **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text` and `key`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
 - For the `smoke/1.5-app-lifecycle.sh` script only: a JDK and Android SDK build-tools with one platform. The smoke builds its own test APK, `dev.karagoz.smoke`, and removes it at the end. See [Development](#development).
-- For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked.
+- For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked: on a lock screen `text` and `key` type into the PIN field, and a wrong PIN counts as a failed unlock attempt; with the screen off, taps are dropped and keys still arrive. Both exit `0`.
 
 ## Install
 
@@ -201,6 +201,7 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | `ELEMENT_NOT_FOUND` | No node matches. | `tap --text/--id` |
 | `ELEMENT_AMBIGUOUS` | More than one node matches. | `tap --text/--id` |
 | `ELEMENT_COVERED` | The node's center is under the on-screen keyboard. | `tap --text/--id` |
+| `INPUT_BLOCKED` | The device does not let adb inject input; on Xiaomi, Redmi and POCO, "USB debugging (Security settings)" is off; on vivo and iQOO, "USB simulated click". | `tap`, `swipe`, `text`, `key` |
 | `INSTALL_FAILED` | Android refused the APK. `reason` is Android's code. | `install` |
 | `UNINSTALL_FAILED` | Android refused to remove the app. `reason` is Android's code. | `uninstall` |
 | `APP_NOT_FOUND` | The package is not installed. | `launch`, `terminate`, `uninstall`, `logs` |
@@ -348,7 +349,7 @@ Node fields, in this order:
 | `text`, `contentDesc`, `resourceId`, `hint` | when not empty | `resourceId` is the full form, `com.example:id/save`. `hint` exists from Android 15 QPR2 (some API 35 images) on. |
 | `checkable`, `checked`, `clickable`, `longClickable`, `focusable`, `focused`, `scrollable`, `selected`, `password` | only when `true` | |
 | `enabled` | only when `false` | |
-| `bounds` | always | `[left, top, right, bottom]` in [screen pixels](#coordinates). Clipped to the screen: a node wholly off screen is `[0,0,0,0]`, and bottom can be above top. |
+| `bounds` | always | `[left, top, right, bottom]` in [screen pixels](#coordinates). Clipped to the screen: a node wholly off screen is `[0,0,0,0]`, and bottom can be above top. Up to Android 13 the clip also leaves out the status and navigation bars, so a node in the bottom band can be `[0,0,0,0]` while it is visible. |
 | `children` | when the node has any | Nodes, same shape. |
 
 Other attributes that uiautomator prints (`index`, `drawing-order`, `NAF`) are dropped. Every node uiautomator returns is kept; there is no filtering.
@@ -387,7 +388,7 @@ Taps a point, or finds one node in the [tree](#ui-tree) and taps its center. Giv
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `<x> <y>` | | A point in [screen pixels](#coordinates). Non-negative, decimals allowed (`12`, `12.5`). |
-| `--text <label>` | | A node whose `text` or `contentDesc` equals the label: whole string, case-sensitive, no trimming. |
+| `--text <label>` | | A node whose `text` or `contentDesc` equals the label: whole string, case-sensitive, no trimming. Invisible direction marks (U+200E and the like) are ignored on both sides. |
 | `--id <resource-id>` | | A node whose `resourceId` equals the value, or ends with `:id/<value>`. `--id save` matches `com.example:id/save`. |
 | `--duration <ms>` | none | Hold for this long (a long press). Whole milliseconds, 0 to 999999999. |
 | `--timeout <ms>` | `0` | Keep reading the tree until a node matches or this much time has passed. Only with `--text` or `--id`. |
@@ -417,7 +418,7 @@ With `--duration 10` a `"duration":10` field follows `y`. Node:
 - If the keyboard is visible and the node's center is inside it, the tap is refused with `ELEMENT_COVERED`. Close the keyboard with `karagoz key BACK`. Only the keyboard is checked; bubbles and picture-in-picture windows are not.
 - With `--timeout`, only "no match" triggers another read, and it starts right away. The last read can end up to one read (about 3 s) past the timeout. The tap itself is never repeated.
 - The screen can change between the read and the tap; the tap then lands on the old point.
-- A long press with `--duration` is sent as a swipe that does not move. Long-press thresholds measured: 400 ms on View and Compose, 500 ms on Flutter.
+- A long press with `--duration` is sent as a swipe that does not move. View and Compose use the device's long-press setting (`settings get secure long_press_timeout`; 400 ms on stock Android, Samsung offers 300 to 1500 ms), Flutter 500 ms.
 
 **Errors**
 
@@ -426,7 +427,7 @@ With `--duration 10` a `"duration":10` field follows `y`. Node:
 - `ELEMENT_AMBIGUOUS`: lists up to five matches with class and bounds.
 - `ELEMENT_COVERED`: the node is under the keyboard.
 - Node taps also get every [`ui-tree`](#ui-tree) error. A point tap does not read the tree, so it works while another UiAutomation client is connected.
-- Plus the [device selection](#device-selection) errors and the adb errors.
+- Plus `INPUT_BLOCKED`, the [device selection](#device-selection) errors and the adb errors.
 
 **Notes**
 
@@ -458,7 +459,7 @@ Moves one finger from `(x1, y1)` to `(x2, y2)`.
 
 **Duration matters.** A fast swipe flings a list and a slow one drags it. Measured on a 1200 px drag: 300 ms scrolled a further 1059 px after the finger lifted, 1000 ms scrolled 131 px further, 3000 ms 19 px.
 
-**Errors:** `INVALID_ARGS`, the [device selection](#device-selection) errors and the adb errors.
+**Errors:** `INVALID_ARGS`, `INPUT_BLOCKED`, the [device selection](#device-selection) errors and the adb errors.
 
 ### text
 
@@ -488,7 +489,7 @@ Quotes, spaces and `%s` are typed as they are; karagoz handles the escaping.
 - `INVALID_ARGS`: empty text.
 - `TEXT_UNSUPPORTED`: see above.
 - Long text is sent in pieces of up to 100 characters. If a piece fails, the error keeps its code and the message ends with `; <n> of <total> characters were typed before this`.
-- Plus the [device selection](#device-selection) errors and the adb errors.
+- Plus `INPUT_BLOCKED`, the [device selection](#device-selection) errors and the adb errors.
 
 **Notes**
 
@@ -519,11 +520,11 @@ Presses one key.
 **Errors**
 
 - `INVALID_ARGS`: `unknown key 'FOO'; use a KeyEvent name such as HOME, BACK or ENTER, or a code from 1 to 340`. Checked before any device call.
-- Plus the [device selection](#device-selection) errors and the adb errors.
+- Plus `INPUT_BLOCKED`, the [device selection](#device-selection) errors and the adb errors.
 
 **Notes**
 
-- Codes 338 to 340 exist in the name table but Android 16 sends them as `KEYCODE_UNKNOWN`, still with exit `0`.
+- A device knows the key codes of its Android version only (12: up to 288, 13: 304, 14: 316, 15: 318, 16: 337); a higher code is sent as `KEYCODE_UNKNOWN`, still with exit `0`.
 - Some keys act on the whole device: code 312 opens Recents, 318 saves a screenshot.
 - Exit `0` means Android accepted the key, not that the app reacted to it.
 
@@ -928,7 +929,7 @@ npm run typecheck
 npm run lint        # oxlint and the Prettier check; npm run format fixes formatting
 ```
 
-Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh` and `smoke/2.3-ui-tree-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2 and 2.3 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
+Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh`, `smoke/2.3-ui-tree-physical.sh` and `smoke/2.4-input-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2, 2.3 and 2.4 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
 
 ```sh
 sh smoke/1.4-input.sh
