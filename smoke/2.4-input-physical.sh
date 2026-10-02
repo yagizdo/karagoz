@@ -8,9 +8,10 @@
 # What reaches a phone: reads (`adb devices`, the getprop of `devices`, `settings get`, `dumpsys power`, `dumpsys window
 # policy`, `dumpsys window -a InputMethod`, `dumpsys window windows`, `dumpsys accessibility`, `cmd package
 # resolve-activity`, `pidof uiautomator`, `wm size`); `am start -W -a android.settings.SETTINGS`; karagoz `ui-tree`,
-# `key` (HOME, BACK, DEL only), `tap`, `swipe` and `text` into the Settings search field. It writes no setting, installs
-# nothing, never presses ENTER and never taps a search result, so the search keeps no history. It leaves the phone on
-# the home screen. The adb server on the default port is never stopped or restarted.
+# `key` (HOME, BACK, DEL only), `tap`, `swipe` and `text` into the Settings search field; on exit, once input was sent,
+# `adb shell input keyevent` BACK three times and HOME. It writes no setting, installs nothing, never presses ENTER and
+# never taps a search result, so the search keeps no history. It leaves the phone on the home screen. The adb server
+# on the default port is never stopped or restarted.
 set -e
 cd "$(dirname "$0")/.."
 npm run --silent build
@@ -58,14 +59,10 @@ setting() {
 # protocol v2 ends lines with \r\n.
 
 # Prints "<isVisible> <rects>" for the IME's own block of `dumpsys window -a InputMethod` (input.ts's block rule):
-# "true 1", "false 0". rects counts rectangles of positive size inside [0, max(wm size)]; $1 is `wm size`'s output,
-# whose last WxH wins (Override size comes after Physical size).
+# "true 1", "false 0". rects counts rectangles of positive size inside [0, $1]; $1 is the screen's longer side.
 ime_state() { node -e '
   const out = require("fs").readFileSync(0, "utf8").replaceAll("\r", "");
-  const sizes = [...process.argv[1].matchAll(/(\d+)x(\d+)/g)];
-  const last = sizes.at(-1);
-  if (!last) process.exit(1);
-  const max = Math.max(Number(last[1]), Number(last[2]));
+  const max = Number(process.argv[1]);
   const block = /Window\{[^}\n]* InputMethod\}:\n([\s\S]*?)(?:\n[ \t]*\n|$)/.exec(out)?.[1] ?? "";
   const visible = /^\s*isVisible=true$/m.test(block);
   const region = /touchable region=SkRegion\((.*)\)$/m.exec(block)?.[1] ?? "";
@@ -110,9 +107,8 @@ focused() { node -e '
 ' "$@"; }
 
 # On a ui-tree result: the search entry, the first clickable node with non-zero bounds whose resourceId contains
-# "search" (any case) and whose class is not editable. Prints "<x> <y> <matches> <suffix>": its center, how many
-# nodes with an area `tap --id <suffix>` would match (karagoz's own rule), and the part after :id/ (the whole id when
-# it has none). Exits 1 when there is none. The suffix is last so `read` keeps it whole.
+# "search" (any case) and whose class is not editable. Prints "<x> <y> <suffix>": its center and the part after :id/
+# (the whole id when it has none). Exits 1 when there is none. The suffix is last so `read` keeps it whole.
 search_entry() { node -e '
   const nodes = [];
   const walk = (n) => { nodes.push(n); (n.children ?? []).forEach(walk); };
@@ -124,13 +120,11 @@ search_entry() { node -e '
   if (!entry) process.exit(1);
   const id = entry.resourceId;
   const suffix = id.includes(":id/") ? id.slice(id.indexOf(":id/") + 4) : id;
-  const matches = nodes.filter((n) => area(n) && typeof n.resourceId === "string"
-    && (n.resourceId === suffix || n.resourceId.endsWith(`:id/${suffix}`))).length;
   const [l, t, r, b] = entry.bounds;
-  console.log((l + r) / 2, (t + b) / 2, matches, suffix);
+  console.log((l + r) / 2, (t + b) / 2, suffix);
 '; }
 
-# On a ui-tree result: how many nodes with an area `tap --id $1` matches (step 11's ambiguous precondition).
+# On a ui-tree result: how many nodes with an area `tap --id $1` matches (karagoz's own rule).
 id_count() { node -e '
   let count = 0;
   const walk = (n) => {
@@ -191,7 +185,7 @@ screen_not() { read_tree && [ "$(printf '%s' "$tree" | screen_sum)" != "$1" ]; }
 # $1 is a case pattern for ime_state's output, such as 'false *'.
 ime_is() {
   dump=$(adb -s "$serial" shell dumpsys window -a InputMethod 2>/dev/null) || return 1
-  state=$(printf '%s' "$dump" | ime_state "$size")
+  state=$(printf '%s' "$dump" | ime_state "$height")
   case $state in $1) ;; *) false ;; esac
 }
 popup_count() {
@@ -275,10 +269,10 @@ adb -s "$serial" shell am start -W -a android.settings.SETTINGS >/dev/null 2>&1 
   || fail "adb -s $serial shell am start -W -a android.settings.SETTINGS failed"
 wait_until 30 'front "$settings"' "Settings was not in front within 30 s after am start"
 entry=$(printf '%s' "$tree" | search_entry) || fail "no search entry on the Settings home page"
-read -r sx sy smatch suffix <<EOF
+read -r sx sy suffix <<EOF
 $entry
 EOF
-[ "$smatch" = 1 ] || fail "the Settings search entry id is not unique"
+[ "$(printf '%s' "$tree" | id_count "$suffix")" = 1 ] || fail "the Settings search entry id is not unique"
 
 # 6. Point tap on the entry: the search opens with its field focused.
 run tap "$sx" "$sy"
@@ -379,10 +373,12 @@ wait_until 30 'screen_not "$sum"' "the Settings screen did not move within 30 s 
 run swipe "$x" "$high" "$x" "$low"
 [ "$(printf '%s' "$out" | field duration)" = 300 ] || fail "swipe without --duration did not echo duration 300"
 
-# 13. Nothing left behind. pidof exits 1 when nothing matches, so its output decides, not its exit status.
-run key BACK
+# 13. HOME from Settings: step 4 can start on the launcher already, so this is the step where HOME shows its effect.
+wait_until 30 'front "$settings"' "Settings was not in front within 30 s after the swipes"
 run key HOME
 wait_until 30 'front "$launcher"' "the launcher was not in front within 30 s after key HOME"
+
+# Nothing left behind. pidof exits 1 when nothing matches, so its output decides, not its exit status.
 left=$(adb -s "$serial" shell pidof uiautomator 2>/dev/null) || true
 [ -z "$left" ] || fail "a uiautomator process is left on the phone"
 a11y=$(adb -s "$serial" shell dumpsys accessibility 2>/dev/null) || fail "adb -s $serial shell dumpsys accessibility failed"
