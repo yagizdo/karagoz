@@ -202,6 +202,13 @@ case "$*" in
   *'shell dumpsys window -a InputMethod') cat "$FAKE/ime" ;;
   *'shell dumpsys accessibility') echo 'ACCESSIBILITY MANAGER (dumpsys accessibility)' ;;
   *"shell input 'text' 'FAIL"*) echo 'java.lang.NullPointerException: Attempt to get length of null array' >&2; exit 255 ;;
+  *"shell input 'tap' '7' '7'")
+    { echo; echo "Exception occurred while executing 'tap':"; echo 'java.lang.SecurityException: Injecting input events requires the caller (or the source of the instrumentation, if any) to have the INJECT_EVENTS permission.'; } >&2
+    exit 255 ;;
+  *"shell input 'keyevent' '82'") echo 'java.lang.SecurityException: Injecting to another application requires INJECT_EVENTS permission' >&2; exit 1 ;;
+  *"shell input 'text' 'BLOCK"*)
+    { echo; echo "Exception occurred while executing 'text':"; echo 'java.lang.SecurityException: Injecting input events requires the caller (or the source of the instrumentation, if any) to have the INJECT_EVENTS permission.'; } >&2
+    exit 255 ;;
   *'shell input '*) echo "$*" >> "$FAKE/input" ;;
   *) echo "fake adb: unexpected arguments: $*" >&2; exit 1 ;;
 esac
@@ -302,4 +309,27 @@ if fake_run "$tmp/ime-hidden" text "${long}FAIL"; then echo "FAIL: fixture f exi
 error_is f ADB_FAILED "java.lang.NullPointerException: Attempt to get length of null array; 100 of 104 characters were typed before this"
 input_is f "-s emulator-5554 shell input 'text' '$long'"
 
-echo "ok: $id, key 3, long press popup, tap into search, text 13 chars, swipe moved, element taps"
+# g. Invisible direction marks (here U+200E, as raw UTF-8) count on neither side; the element keeps them; case counts.
+lrm=$(printf '\342\200\216')
+dump "<node class=\"android.widget.TextView\" text=\"${lrm}Buds${lrm}\" bounds=\"[0,400][1080,500]\" />"
+fake_run "$tmp/ime-hidden" tap --text Buds || { echo "FAIL: fixture g exited non-zero: $got"; exit 1; }
+input_is g "-s emulator-5554 shell input 'tap' '540' '450'"
+[ "$(printf '%s' "$got" | field element.text)" = "${lrm}Buds${lrm}" ] || { echo "FAIL: fixture g: element.text lost its marks: $got"; exit 1; }
+fake_run "$tmp/ime-hidden" tap --text "${lrm}Buds" || { echo "FAIL: fixture g with a marked label exited non-zero: $got"; exit 1; }
+input_is g "-s emulator-5554 shell input 'tap' '540' '450'"
+if fake_run "$tmp/ime-hidden" tap --text buds; then echo "FAIL: fixture g with buds exited 0: $got"; exit 1; fi
+error_is g ELEMENT_NOT_FOUND "no node with text or contentDesc 'buds' in com.example (1 read in " prefix
+input_is g ''
+
+# h. A device that denies INJECT_EVENTS to shell, API 31+ form: INPUT_BLOCKED instead of adb's stack trace.
+blocked='the device does not let adb inject input (SecurityException: INJECT_EVENTS permission); on Xiaomi, Redmi and POCO turn on Developer options > USB debugging (Security settings), on vivo and iQOO turn on USB simulated click; retrying does not help'
+if fake_run "$tmp/ime-hidden" tap 7 7; then echo "FAIL: fixture h exited 0: $got"; exit 1; fi
+error_is h INPUT_BLOCKED "$blocked"
+
+# i. The API <= 30 form (exit 1), and text keeps its suffix: the denial comes before any character.
+if fake_run "$tmp/ime-hidden" key MENU; then echo "FAIL: fixture i exited 0: $got"; exit 1; fi
+error_is i INPUT_BLOCKED "$blocked"
+if fake_run "$tmp/ime-hidden" text BLOCKme; then echo "FAIL: fixture i with text exited 0: $got"; exit 1; fi
+error_is i INPUT_BLOCKED "$blocked; 0 of 7 characters were typed before this"
+
+echo "ok: $id, key 3, long press popup, tap into search, text 13 chars, swipe moved, element taps, direction marks, input blocked"
