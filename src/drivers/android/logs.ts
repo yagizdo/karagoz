@@ -10,6 +10,10 @@ const LINES = 30;
 // LOGGER_ENTRY_MAX_LEN: no entry, header included, is longer (K29).
 const MAX_ENTRY = 5120;
 
+// Node's message for output past adbBytes' maxBuffer. When adb also wrote to stderr, adbBytes reports that text instead
+// and the plain ADB_FAILED passes through (K29 2.6 note).
+const OVERFLOW = 'stdout maxBuffer length exceeded';
+
 type LogRecord = { time: number; pid: number; tid: number; level: string; tag: string; message: string };
 type Entry = { uid: number | undefined; record: LogRecord };
 
@@ -24,10 +28,15 @@ function fieldEnd(payload: Buffer, from: number): number {
 // puts logcat's own errors on stdout, so output that is not whole records is that error (K22, K29).
 async function read(id: string, since: string | undefined): Promise<Entry[]> {
   const start = since === undefined ? [] : ['-t', since];
-  // ponytail: the whole window is read because logcat counts -t N before any uid filter. Rings larger than the
-  // defaults can pass adbBytes' 64 MB maxBuffer and fail as ADB_FAILED; a streaming reader lifts it (K29, open
-  // question 13).
-  const out = await adbBytes(['-s', id, 'exec-out', 'logcat', '-d', '-B', ...start]);
+  // ponytail: the whole window is read because logcat counts -t N before any uid filter. A ring grown past adbBytes'
+  // 64 MB maxBuffer gets an error that sends the caller to --since; a streaming reader lifts it (K29, open question 13).
+  const out = await adbBytes(['-s', id, 'exec-out', 'logcat', '-d', '-B', ...start]).catch((err: unknown) => {
+    if (!(err instanceof KaragozError) || err.message !== OVERFLOW) throw err;
+    throw new KaragozError(
+      'ADB_FAILED',
+      'the device log is larger than the 64 MB karagoz reads at once. Pass --since to read only records after a recent time on the device clock (`adb shell date +%s` prints it).',
+    );
+  });
   const entries: Entry[] = [];
   let off = 0;
   while (off + 4 <= out.length) {
@@ -62,7 +71,8 @@ async function read(id: string, since: string | undefined): Promise<Entry[]> {
 // pm list packages matches substrings: `package:<name> uid:<n>` for every package whose name contains <name>, and
 // nothing when none does (K29).
 async function uidOf(id: string, pkg: string): Promise<number> {
-  const out = (await adb(['-s', id, 'exec-out', 'pm', 'list', 'packages', '-U', pkg])).trim();
+  // From Android 13, pm without --user walks every user and throws at one the shell may not access (K29 2.6 note).
+  const out = (await adb(['-s', id, 'exec-out', 'pm', 'list', 'packages', '-U', '--user', '0', pkg])).trim();
   const lines = out
     .split('\n')
     .map((line) => line.trim())

@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI, and `karagoz mcp` serves the same commands to an AI agent as an [MCP server](#mcp-server).
 
-> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate` and `uninstall` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -52,11 +52,11 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`launch`](#launch) | done | done | planned | planned |
 | [`terminate`](#terminate) | done | done | planned | planned |
 | [`uninstall`](#uninstall) | done | done | planned | planned |
-| [`logs`](#logs) | done | planned | planned | planned |
+| [`logs`](#logs) | done | done | planned | planned |
 | [`doctor`](#doctor) | done | done | planned | planned |
 | [MCP server](#mcp-server) | done | | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate` and `uninstall` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -73,7 +73,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
   ```
 
-- **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate` and `uninstall`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
+- **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
 - For `smoke/1.5-app-lifecycle.sh`, and for `smoke/2.5-app-lifecycle-physical.sh` when a phone is attached: a JDK and Android SDK build-tools with one platform. Both smokes build their own test APK, `dev.karagoz.smoke`, and remove it at the end. See [Development](#development).
 - For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked: on a lock screen `text` and `key` type into the PIN field, and a wrong PIN counts as a failed unlock attempt; with the screen off, taps are dropped and keys still arrive. Both exit `0`.
 
@@ -683,7 +683,7 @@ Reads the device log once and prints the newest records as JSON. Each record is 
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--package <package>` | all records | Keep only the records written under this package's Linux user id (uid). |
+| `--package <package>` | all records | Keep only the records written under this package's Linux user id (uid) in the main Android user. |
 | `--since <seconds>` | the whole log | Unix time in seconds on the device clock, up to 9 decimals and at most 4294967295. Only records stamped later are read. |
 | `--lines <n>` | `30` | How many of the newest matching records to return, 1 to 999999999. |
 | `--device <id>` | see [Device selection](#device-selection) | |
@@ -727,7 +727,7 @@ Take the largest `time`, not the last record's: records are in arrival order, an
 
 - `INVALID_ARGS`: `'<value>' is not a package name`, as for [`launch`](#launch); `--since must be Unix time in seconds (got '<value>')`; `--lines must be a whole number from 1 to 999999999 (got '<value>')`. Checked before any device call.
 - `APP_NOT_FOUND`: `package 'dev.karagoz.missing' is not installed on emulator-5554`.
-- `ADB_FAILED`: logcat printed its own error instead of records, such as `Failed to wait for logd.ready to become true. logd not running?`; the output was not whole log records; or `pm list packages` printed an error while karagoz looked up the uid. The message is that output, cut at 300 characters.
+- `ADB_FAILED`: logcat printed its own error instead of records, such as `Failed to wait for logd.ready to become true. logd not running?`; the output was not whole log records; or `pm list packages` printed an error while karagoz looked up the uid. The message is that output, cut at 300 characters. A log larger than the 64 MB karagoz reads at once is `ADB_FAILED` too, with a message that says to pass `--since`.
 - `ADB_TIMEOUT` after 10 s.
 - Plus the [device selection](#device-selection) errors and the adb errors.
 
@@ -737,8 +737,10 @@ Take the largest `time`, not the last record's: records are in arrival order, an
 - The log is never cleared, resized or reconfigured, so other tools and the user keep their history. A call reads what is there and exits; nothing streams. To wait for a line, call again with `--since`.
 - The whole window is read from the device and filtered on the host, because logcat counts records before it filters by uid. A full log on the test emulator was 26 MB, about 133,000 records: `logs --lines 1` took 0.7 s, 0.8 s with `--package`. The default 30 records come to about 7 KB of JSON on average; over every 30-record window of a 141,000-record log, the largest was 47 KB.
 - `--package` matches the uid, not a process: every process of the app, every restart, and its Java and native crash lines. Lines the system server writes about the app, such as `Start proc` and `ANR in`, have uid 1000 and are not included. A package that shares a system uid, such as Settings, gets the other processes of that uid as well.
-- A record stamped at or before `--since` that the log daemon receives after the previous read is returned by neither call. Records arrived up to 8.4 ms late on the test emulator.
-- `--since` is on the device clock. The emulator keeps it in step with the host (within 55 ms here), so a host timestamp works there too.
+- `--package` reads the app in the main Android user. Its copies in Secure Folder, a work profile or a second instance (Dual Messenger, Dual Apps) run under another uid and are not included.
+- A record stamped at or before `--since` that the log daemon receives after the previous read is returned by neither call. Records arrived up to 54 ms late in testing.
+- `--since` is on the device clock, which can differ from the computer's: a phone ran 10 s behind with automatic time on, so a computer timestamp skipped every new record. Pass a `time` from an earlier result.
+- A missing line does not prove the app did not write it: some phones drop lines before they reach the log. A `log.tag` property of `I` (`adb shell getprop log.tag`) drops `D` and `V` lines, Developer options' "Logger buffer sizes: Off" drops nearly all, and Huawei and Honor phones keep app logs off until "AP Log" is turned on in a hidden menu.
 - Android cuts a record's tag and message at 4068 bytes together when it is written. Bytes that are not valid UTF-8 become U+FFFD.
 - From Android 15 the device ends a read after 5 s without data and still exits `0`, so a read cut short looks complete.
 
@@ -933,7 +935,7 @@ npm run typecheck
 npm run lint        # oxlint and the Prettier check; npm run format fixes formatting
 ```
 
-Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh`, `smoke/2.3-ui-tree-physical.sh`, `smoke/2.4-input-physical.sh` and `smoke/2.5-app-lifecycle-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2, 2.3, 2.4 and 2.5 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
+Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh`, `smoke/2.3-ui-tree-physical.sh`, `smoke/2.4-input-physical.sh`, `smoke/2.5-app-lifecycle-physical.sh` and `smoke/2.6-logs-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2, 2.3, 2.4, 2.5 and 2.6 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
 
 ```sh
 sh smoke/1.4-input.sh

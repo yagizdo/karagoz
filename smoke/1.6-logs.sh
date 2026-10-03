@@ -157,7 +157,9 @@ cat > "$tmp/sdk/platform-tools/adb" <<'FAKE'
 # Fake adb for smoke 1.6.
 case "$*" in
   devices) printf 'List of devices attached\nemulator-5554\tdevice\n\n' ;;
-  *'exec-out pm list packages -U '*) cat "$FAKE/pm" ;;
+  *'exec-out pm list packages -U --user 0 '*) cat "$FAKE/pm" ;;
+  # Without --user 0, what a phone with a user the shell may not access prints (fixture k), else the same as above.
+  *'exec-out pm list packages -U '*) cat "$FAKE/pm-all" 2>/dev/null || cat "$FAKE/pm" ;;
   *'exec-out logcat -d -B'*) printf '%s\n' "$*" >> "$FAKE/args"; cat "$FAKE/out" ;;
   *) echo "fake adb: unexpected arguments: $*" >&2; exit 1 ;;
 esac
@@ -250,4 +252,18 @@ printf '%s\n' 'Error: something' > "$fake/pm"
 if fake_run logs --package dev.karagoz.x --device emulator-5554; then echo "FAIL: fixture j exited 0: $got"; exit 1; fi
 error_is j ADB_FAILED 'Error: something'
 
-echo "ok: $id, args, markers, chain, lines, future, package, fake adb"
+# k. From Android 13, pm list packages without --user walks every user and stops at one the shell may not access
+# (Secure Folder, a managed work profile), printing only the exception (K29 2.6 note).
+printf '%s\n' "Exception occurred while executing 'list':" \
+  'java.lang.SecurityException: Shell does not have permission to access user 150' > "$fake/pm-all"
+printf '%s\n' 'package:dev.karagoz.x uid:10123' > "$fake/pm"
+printf '%s\n' "1 1 1790513987 0 10123 4 T $(printf mine | od -An -tx1 | tr -d ' \n')" | entries > "$fake/out"
+fake_run logs --package dev.karagoz.x --device emulator-5554 || { echo "FAIL: fixture k exited non-zero: $got"; exit 1; }
+result_is k '{"device":"emulator-5554","package":"dev.karagoz.x","uid":10123,"records":[{"time":1790513987,"pid":1,"tid":1,"level":"I","tag":"T","message":"mine"}],"omitted":0}'
+
+# l. More than adbBytes' 64 MB maxBuffer: Node's own message would not tell the caller what to do.
+head -c 70000000 /dev/zero > "$fake/out"
+if fake_run logs --device emulator-5554; then echo "FAIL: fixture l exited 0"; exit 1; fi
+error_is l ADB_FAILED 'the device log is larger than the 64 MB karagoz reads at once. Pass --since to read only records after a recent time on the device clock (`adb shell date +%s` prints it).'
+
+echo "ok: $id, args, markers, chain, lines, future, package, fake adb, multi-user, overflow"
