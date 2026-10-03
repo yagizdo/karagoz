@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI, and `karagoz mcp` serves the same commands to an AI agent as an [MCP server](#mcp-server).
 
-> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text` and `key` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate` and `uninstall` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -48,15 +48,15 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`swipe`](#swipe) | done | done | planned | planned |
 | [`text`](#text) | done | done | planned | planned |
 | [`key`](#key) | done | done | planned | planned |
-| [`install`](#install-1) | done | planned | planned | planned |
-| [`launch`](#launch) | done | planned | planned | planned |
-| [`terminate`](#terminate) | done | planned | planned | planned |
-| [`uninstall`](#uninstall) | done | planned | planned | planned |
+| [`install`](#install-1) | done | done | planned | planned |
+| [`launch`](#launch) | done | done | planned | planned |
+| [`terminate`](#terminate) | done | done | planned | planned |
+| [`uninstall`](#uninstall) | done | done | planned | planned |
 | [`logs`](#logs) | done | planned | planned | planned |
 | [`doctor`](#doctor) | done | done | planned | planned |
 | [MCP server](#mcp-server) | done | | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text` and `key` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate` and `uninstall` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -73,8 +73,8 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
   ```
 
-- **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text` and `key`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
-- For the `smoke/1.5-app-lifecycle.sh` script only: a JDK and Android SDK build-tools with one platform. The smoke builds its own test APK, `dev.karagoz.smoke`, and removes it at the end. See [Development](#development).
+- **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate` and `uninstall`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
+- For `smoke/1.5-app-lifecycle.sh`, and for `smoke/2.5-app-lifecycle-physical.sh` when a phone is attached: a JDK and Android SDK build-tools with one platform. Both smokes build their own test APK, `dev.karagoz.smoke`, and remove it at the end. See [Development](#development).
 - For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked: on a lock screen `text` and `key` type into the PIN field, and a wrong PIN counts as a failed unlock attempt; with the screen off, taps are dropped and keys still arrive. Both exit `0`.
 
 ## Install
@@ -188,7 +188,7 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | `UNKNOWN_COMMAND` | The command name is not known. | all |
 | `INVALID_ARGS` | Missing, extra, malformed or unknown arguments, an unknown key name, an APK path that is not an existing `.apk` file, a screenshot `--out` that does not end in `.png`, a malformed package name, a `--since` that is not Unix time in seconds, or a `--lines` outside 1 to 999999999. | all |
 | `ADB_NOT_FOUND` | No `adb` found. See [Requirements](#requirements). | all that reach adb, except `doctor`, which reports these in its output |
-| `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 10 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump. | all that reach adb, except `doctor`, which reports these in its output |
+| `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 30 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump, and for `install` an install prompt on the phone, which the message names first. | all that reach adb, except `doctor`, which reports these in its output |
 | `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. For `logs`, logcat's own error text or output that is not whole log records. A device that disconnects mid-command ends here. | all that reach adb, except `doctor`, which reports these in its output |
 | `NO_DEVICE` | No device connected and none named. | all but `devices` and `doctor` |
 | `DEVICE_NOT_FOUND` | The named device is not connected. | all but `devices` and `doctor` |
@@ -553,14 +553,16 @@ Installs an app from one APK file, or replaces the installed version of the same
 
 - `INVALID_ARGS`: `'<path>' is not an .apk file`, `no file at '<path>'` or `'<path>' is not a file`. Checked before any device call.
 - `INSTALL_FAILED`: Android refused the APK. The message is adb's, and `reason` is Android's code, as in the [example above](#output-and-errors). Codes seen on the emulator: `INSTALL_FAILED_VERSION_DOWNGRADE` (a lower `versionCode` than the installed app), `INSTALL_FAILED_UPDATE_INCOMPATIBLE` (signed with another key), `INSTALL_PARSE_FAILED_NOT_APK`, `INSTALL_FAILED_DEPRECATED_SDK_VERSION` (`targetSdkVersion` below 24 on Android 16).
+- On a phone, Android's code can come from the phone's own install check, with text that says someone cancelled when nobody did: `INSTALL_FAILED_VERIFICATION_FAILURE` (Play Protect refused the app), `INSTALL_FAILED_USER_RESTRICTED` with `Install canceled by user` (Xiaomi, Redmi, POCO: "Install via USB" is off, or its prompt ran out), `INSTALL_FAILED_ABORTED` with `User rejected permissions` (vivo, iQOO: the same).
 - A failure without an Android code, such as `Error: device is still booting.`, stays `ADB_FAILED`.
-- `ADB_TIMEOUT` after 10 s plus 1 s for every started MB of the APK.
+- `ADB_TIMEOUT` after 30 s plus 1 s for every started MB of the APK. On a phone, the install may be held on a prompt (Play Protect, or the maker's check for USB installs) that waits for a tap; if it is accepted later, the app still installs.
 - Plus the [device selection](#device-selection) errors and the adb errors.
 
 **Notes**
 
 - Runs `adb install -r --no-incremental`. Since Android 9 a reinstall replaces the app without `-r`; it stays for older devices. `--no-incremental` matters when an `.idsig` file sits next to the APK (`apksigner` writes one by default): adb would then install incrementally, through a background `adb inc-server` process.
 - One `.apk` only. Split APKs, `.apks` and `.aab` are not supported. There is no way to pass `-g` (grant runtime permissions), `-d` (allow a downgrade) or `-t`: an APK marked `testOnly`, which Android Studio's Run button can produce, fails with `INSTALL_FAILED_TEST_ONLY`.
+- Android installs the app for every user on the device that allows adb installs; Secure Folder, Dual Messenger and work profiles get it too.
 - An 8.5 KB APK took 0.7 s, a 100 MB one 2.5 to 3.4 s.
 
 ### launch
@@ -635,6 +637,7 @@ An app that is installed but not running gives the same output.
 **Notes**
 
 - Only the package's own processes stop. An activity from another package in the same task stays on screen: after `terminate com.android.settings` with the Settings search open, the search is still in front.
+- The app stops in every user on the device, Secure Folder and work profiles included.
 - Took 0.8 to 1.3 s.
 
 ### uninstall
@@ -667,6 +670,7 @@ Removes an app and its data.
 
 - A system app with installed updates goes back to its factory version. Android reports that as success, and so does karagoz.
 - The app's data is always removed; `adb uninstall -k` (keep data) is not offered.
+- The app and its data go from every user on the device, Secure Folder and work profiles included. The installed check looks at the main user only, so an app installed only in a profile gives `APP_NOT_FOUND`.
 - Took 0.6 to 0.8 s.
 
 ### logs
@@ -929,13 +933,13 @@ npm run typecheck
 npm run lint        # oxlint and the Prettier check; npm run format fixes formatting
 ```
 
-Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh`, `smoke/2.3-ui-tree-physical.sh` and `smoke/2.4-input-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2, 2.3 and 2.4 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
+Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh`, `smoke/2.3-ui-tree-physical.sh`, `smoke/2.4-input-physical.sh` and `smoke/2.5-app-lifecycle-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2, 2.3, 2.4 and 2.5 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
 
 ```sh
 sh smoke/1.4-input.sh
 ```
 
-`smoke/1.5-app-lifecycle.sh` also builds a test APK on every run, from the manifest in `smoke/fixtures/app-lifecycle/`, and installs and removes it as `dev.karagoz.smoke`. No APK is kept in the repository. It needs a JDK (`java` and `keytool` on `PATH`) and, from the Android SDK, build-tools with `aapt2` and `apksigner` plus one platform. The SDK is the first of `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Library/Android/sdk` and `~/Android/Sdk` that has both `build-tools/` and `platforms/`. When something is missing the smoke fails and says what, rather than skipping.
+`smoke/1.5-app-lifecycle.sh` also builds a test APK on every run, and `smoke/2.5-app-lifecycle-physical.sh` when a phone is attached, with `smoke/fixtures/app-lifecycle/build.sh` from the manifest in that folder, and installs and removes it as `dev.karagoz.smoke`. No APK is kept in the repository. They need a JDK (`java` and `keytool` on `PATH`) and, from the Android SDK, build-tools with `aapt2` and `apksigner` plus one platform. The SDK is the first of `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Library/Android/sdk` and `~/Android/Sdk` that has both `build-tools/` and `platforms/`. When something is missing the smoke fails and says what, rather than skipping.
 
 The full check, with the emulator running:
 
