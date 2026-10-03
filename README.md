@@ -56,7 +56,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`doctor`](#doctor) | done | done | planned | planned |
 | [MCP server](#mcp-server) | done | | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text` and `key` on an Infinix phone (Android 12) over USB; `screenshot` does not work on Android 12 yet (it cannot read the safe area). No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text` and `key` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
 
 ## Requirements
 

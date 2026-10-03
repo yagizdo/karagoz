@@ -1,7 +1,7 @@
 #!/bin/sh
-# Step 2.2: `screenshot` reads the Android 14 `dumpsys window displays` format (fake adb, always), and captures a
-# physical device by serial and by model name with K6 metadata that matches the device's own `wm size` and
-# `wm density` (when one is listed).
+# Step 2.2: `screenshot` reads the `dumpsys window displays` formats of Android 10 (two states), 11, 12, 13 and 14
+# (fake adb, always), and captures a physical device by serial and by model name with K6 metadata that matches the
+# device's own `wm size` and `wm density` (when one is listed).
 # Precondition: the build only; a phone with USB debugging on is optional, and no emulator is needed.
 # Nothing here writes to a phone: the only calls that reach one are `adb devices`, the getprop that `devices` and name
 # matching make, screencap, `wm size`, `wm density` and `dumpsys window displays`. The adb server on the default port is
@@ -45,28 +45,39 @@ fail() {
   exit 1
 }
 
-# 1. Android 14 through a fake adb on an otherwise empty PATH. The fake sets its own PATH: without it cat is not
-# found, and karagoz reports that screencap returned no data.
+# 1. One fake device per `dumpsys window displays` format, through a fake adb on an otherwise empty PATH. The fake
+# answers by serial and rejects any other call. It sets its own PATH: without it cat is not found, and karagoz
+# reports that screencap returned no data.
 mkdir "$tmp/fake"
 cat > "$tmp/fake/adb" <<'EOF'
 #!/bin/sh
 PATH=/usr/bin:/bin
 here=${0%/*}
 case "$*" in
-  devices) printf 'List of devices attached\nfake-api34\tdevice\n\n' ;;
-  '-s fake-api34 exec-out screencap -p') cat "$here/screen.png" ;;
-  '-s fake-api34 shell wm density') printf 'Physical density: 450\n' ;;
-  '-s fake-api34 shell dumpsys window displays') cat "$here/displays.txt" ;;
+  devices) printf 'List of devices attached\nfake-api29\tdevice\nfake-api29-seascape\tdevice\nfake-api30\tdevice\nfake-api31\tdevice\nfake-api33\tdevice\nfake-api34\tdevice\n\n' ;;
+  "-s $2 exec-out screencap -p") cat "$here/$2.png" ;;
+  "-s $2 shell wm density") cat "$here/$2.density" ;;
+  "-s $2 shell dumpsys window displays") cat "$here/$2.txt" ;;
   *) echo "fake adb: unexpected call: $*" >&2; exit 1 ;;
 esac
 EOF
 chmod +x "$tmp/fake/adb"
-# A 1080x2316 PNG with only IHDR and IEND, from hex: zlib.crc32 needs Node 22.2 and engines says >=22.
-node -e 'require("fs").writeFileSync(process.argv[1], Buffer.from(process.argv[2], "hex"))' "$tmp/fake/screen.png" \
-  89504e470d0a1a0a0000000d49484452000004380000090c0806000000122c48f40000000049454e44ae426082
+# $1 serial, $2 a PNG with only IHDR and IEND as hex (zlib.crc32 needs Node 22.2 and engines says >=22), $3 density.
+device() {
+  node -e 'require("fs").writeFileSync(process.argv[1], Buffer.from(process.argv[2], "hex"))' "$tmp/fake/$1.png" "$2"
+  printf 'Physical density: %s\n' "$3" >"$tmp/fake/$1.density"
+}
+png1080x2280=89504e470d0a1a0a0000000d4948445200000438000008e80806000000398e1ad40000000049454e44ae426082
+png2280x1080=89504e470d0a1a0a0000000d49484452000008e8000004380806000000b91b71010000000049454e44ae426082
+device fake-api34 89504e470d0a1a0a0000000d49484452000004380000090c0806000000122c48f40000000049454e44ae426082 450
+device fake-api33 "$png1080x2280" 440
+device fake-api31 89504e470d0a1a0a0000000d49484452000002d00000064c080600000027bcb5b70000000049454e44ae426082 320
+device fake-api30 "$png2280x1080" 440
+device fake-api29 "$png1080x2280" 440
+device fake-api29-seascape "$png2280x1080" 440
 # The Android 14 shape, written by hand in the AOSP 14 format (K23): the (organized) header, base= before cur=,
 # mUserRotation= next to mRotation=, the insetsRoundedCornerFrame= tail, an ime line with visibleFrame=.
-cat > "$tmp/fake/displays.txt" <<'EOF'
+cat > "$tmp/fake/fake-api34.txt" <<'EOF'
 WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)
   Display: mDisplayId=0 (organized)
     init=1440x3088 600dpi base=1080x2316 450dpi cur=1080x2316 app=1080x2106
@@ -81,11 +92,106 @@ WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)
         InsetsSource id=b0001 type=navigationBars frame=[0,2181][1080,2316] visible=true flags= insetsRoundedCornerFrame=false
         InsetsSource id=b0004 type=systemGestures frame=[0,0][0,0] visible=true flags= insetsRoundedCornerFrame=false
 EOF
-# An exact compare: a wrong density still exits 0 with a self-consistent scale.
-out=$(env -i HOME="$tmp" PATH="$tmp/fake" "$(command -v node)" dist/cli.js screenshot --device fake-api34 --out "$tmp/api34.png" 2>"$tmp/err") \
-  || fail "screenshot on the fake adb exited non-zero: $out $(cat "$tmp/err")"
-want="{\"path\":\"$tmp/api34.png\",\"device\":\"fake-api34\",\"pixels\":{\"width\":1080,\"height\":2316},\"logical\":{\"width\":384,\"height\":823.4666666666667},\"scale\":2.8125,\"safeArea\":{\"top\":75,\"right\":0,\"bottom\":135,\"left\":0},\"rotation\":0}"
-[ "$out" = "$want" ] || fail "the Android 14 fixture gave $out, expected $want"
+# Android 13 (emulator, API 33): no id= token, ITYPE_* names, sentinel cutout frames such as [0,0][-100000,2280].
+cat > "$tmp/fake/fake-api33.txt" <<'EOF'
+WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)
+  Display: mDisplayId=0 rootTasks=3
+    init=1080x2280 440dpi mMinSizeOfResizeableTaskDp=220 cur=1080x2280 app=1080x2016 rng=1080x1080-2016x2016
+    mRotation=0 mDeferredRotationPauseCount=0
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 1080, 2280)
+        InsetsSource type=ITYPE_STATUS_BAR frame=[0,0][1080,132] visible=true insetsRoundedCornerFrame=false
+        InsetsSource type=ITYPE_NAVIGATION_BAR frame=[0,2148][1080,2280] visible=true insetsRoundedCornerFrame=false
+        InsetsSource type=ITYPE_LEFT_DISPLAY_CUTOUT frame=[0,0][-100000,2280] visible=true insetsRoundedCornerFrame=false
+        InsetsSource type=ITYPE_TOP_DISPLAY_CUTOUT frame=[0,0][1080,132] visible=true insetsRoundedCornerFrame=false
+        InsetsSource type=ITYPE_RIGHT_DISPLAY_CUTOUT frame=[100000,0][1080,2280] visible=true insetsRoundedCornerFrame=false
+        InsetsSource type=ITYPE_BOTTOM_DISPLAY_CUTOUT frame=[0,100000][1080,2280] visible=true insetsRoundedCornerFrame=false
+EOF
+# Android 12 (a phone, API 31), parser lines only: ITYPE_* names, a gesture source wider than the status bar, an
+# ITYPE_IME line with visibleFrame=, and an mSource= copy under InsetsSourceProviders.
+cat > "$tmp/fake/fake-api31.txt" <<'EOF'
+WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)
+  Display: mDisplayId=0 rootTasks=6
+    init=720x1612 320dpi cur=720x1612 app=720x1460 rng=720x664-1444x1460
+    mRotation=0 mDeferredRotationPauseCount=0
+  WindowInsetsStateController
+    InsetsState
+      mDisplayFrame=Rect(0, 0 - 720, 1612)
+        InsetsSource type=ITYPE_STATUS_BAR frame=[0,0][720,72] visible=true
+        InsetsSource type=ITYPE_NAVIGATION_BAR frame=[0,1532][720,1612] visible=true
+        InsetsSource type=ITYPE_TOP_MANDATORY_GESTURES frame=[0,0][720,96] visible=true
+        InsetsSource type=ITYPE_LEFT_DISPLAY_CUTOUT frame=[0,0][-2147483648,1612] visible=true
+        InsetsSource type=ITYPE_TOP_DISPLAY_CUTOUT frame=[0,0][720,72] visible=true
+        InsetsSource type=ITYPE_RIGHT_DISPLAY_CUTOUT frame=[2147483647,0][720,1612] visible=true
+        InsetsSource type=ITYPE_BOTTOM_DISPLAY_CUTOUT frame=[0,2147483647][720,1612] visible=true
+        InsetsSource type=ITYPE_IME frame=[0,0][0,0] visibleFrame=[0,1532][720,1612] visible=false
+    InsetsSourceProviders:
+      InsetsSourceProvider
+        mSource=InsetsSource type=ITYPE_STATUS_BAR frame=[0,0][720,500] visible=true
+EOF
+# Android 11 (emulator, API 30, landscape): no mDisplayFrame= line, 6-space sources, and an mSource= copy with
+# spaces before InsetsSource.
+cat > "$tmp/fake/fake-api30.txt" <<'EOF'
+WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)
+  Display: mDisplayId=0 stacks=3
+    init=1080x2280 440dpi cur=2280x1080 app=2016x1080 rng=1080x1003-2016x2016
+    mRotation=1 mDeferredRotationPauseCount=0
+  WindowInsetsStateController
+    InsetsState
+      InsetsSource type=ITYPE_STATUS_BAR frame=[0,0][2280,77] visible=true
+      InsetsSource type=ITYPE_NAVIGATION_BAR frame=[2148,0][2280,1080] visible=true
+      InsetsSource type=ITYPE_LEFT_DISPLAY_CUTOUT frame=[0,0][132,1080] visible=true
+      InsetsSource type=ITYPE_TOP_DISPLAY_CUTOUT frame=[0,0][2280,-2147483648] visible=true
+      InsetsSource type=ITYPE_RIGHT_DISPLAY_CUTOUT frame=[2147483647,0][2280,1080] visible=true
+      InsetsSource type=ITYPE_BOTTOM_DISPLAY_CUTOUT frame=[0,2147483647][2280,1080] visible=true
+    Control map:
+    InsetsSourceProviders map:
+   mSource=    InsetsSource type=ITYPE_STATUS_BAR frame=[0,0][2280,500] visible=true
+EOF
+# Android 10 (emulator, API 29, gesture navigation): no mRotation=, and TYPE_* sources that are not what apps get
+# (a 132 px TYPE_SIDE_BAR_1 against a 44 px gesture bar); mStable= sits next to the mDock= line the parser reads.
+cat > "$tmp/fake/fake-api29.txt" <<'EOF'
+WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)
+  Display: mDisplayId=0
+    init=1080x2280 440dpi cur=1080x2280 app=1080x2148 rng=1080x997-2148x2065
+  DisplayFrames w=1080 h=2280 r=0
+    mStable=[0,83][1080,2236]
+    mDock=[0,0][1080,2236]
+    mDisplayCutout=WmDisplayCutout{DisplayCutout{insets=Rect(0, 0 - 0, 0) boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]}}, mFrameSize=null}
+  WindowInsetsStateController
+    InsetsState
+      InsetsSource type=TYPE_SIDE_BAR_1 frame=[0,2148][1080,2280] visible=true
+      InsetsSource type=TYPE_TOP_BAR frame=[0,0][1080,83] visible=false
+EOF
+# Android 10 in seascape (r=3): the right edge comes from the mDisplayCutout= insets, the left one from mDock=.
+cat > "$tmp/fake/fake-api29-seascape.txt" <<'EOF'
+WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)
+  Display: mDisplayId=0
+    init=1080x2280 440dpi cur=2280x1080 app=2016x1080 rng=1080x1003-2016x2016
+  DisplayFrames w=2280 h=1080 r=3
+    mStable=[132,77][2280,1080]
+    mDock=[132,77][2280,1080]
+    mDisplayCutout=WmDisplayCutout{DisplayCutout{insets=Rect(0, 0 - 132, 0) boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(2148, 457 - 2280, 623), Rect(0, 0 - 0, 0)]}}, mFrameSize=null}
+  WindowInsetsStateController
+    InsetsState
+      InsetsSource type=TYPE_SIDE_BAR_1 frame=[0,0][132,1080] visible=true
+      InsetsSource type=TYPE_TOP_BAR frame=[0,0][2280,77] visible=true
+EOF
+# An exact compare: a wrong density still exits 0 with a self-consistent scale. $1 serial, $2 the expected JSON
+# after "device".
+expect() {
+  out=$(env -i HOME="$tmp" PATH="$tmp/fake" "$(command -v node)" dist/cli.js screenshot --device "$1" --out "$tmp/${1#fake-}.png" 2>"$tmp/err") \
+    || fail "screenshot on the fake adb ($1) exited non-zero: $out $(cat "$tmp/err")"
+  want="{\"path\":\"$tmp/${1#fake-}.png\",\"device\":\"$1\",$2}"
+  [ "$out" = "$want" ] || fail "the $1 fixture gave $out, expected $want"
+}
+expect fake-api34 '"pixels":{"width":1080,"height":2316},"logical":{"width":384,"height":823.4666666666667},"scale":2.8125,"safeArea":{"top":75,"right":0,"bottom":135,"left":0},"rotation":0'
+expect fake-api33 '"pixels":{"width":1080,"height":2280},"logical":{"width":392.72727272727275,"height":829.0909090909091},"scale":2.75,"safeArea":{"top":132,"right":0,"bottom":132,"left":0},"rotation":0'
+expect fake-api31 '"pixels":{"width":720,"height":1612},"logical":{"width":360,"height":806},"scale":2,"safeArea":{"top":72,"right":0,"bottom":80,"left":0},"rotation":0'
+expect fake-api30 '"pixels":{"width":2280,"height":1080},"logical":{"width":829.0909090909091,"height":392.72727272727275},"scale":2.75,"safeArea":{"top":77,"right":132,"bottom":0,"left":132},"rotation":90'
+expect fake-api29 '"pixels":{"width":1080,"height":2280},"logical":{"width":392.72727272727275,"height":829.0909090909091},"scale":2.75,"safeArea":{"top":0,"right":0,"bottom":44,"left":0},"rotation":0'
+expect fake-api29-seascape '"pixels":{"width":2280,"height":1080},"logical":{"width":829.0909090909091,"height":392.72727272727275},"scale":2.75,"safeArea":{"top":77,"right":132,"bottom":0,"left":132},"rotation":270'
 
 # 2. A physical device on the default server, if one is listed. Every failure goes through fail, which masks the serial.
 list=$(node dist/cli.js devices) || fail "devices exited non-zero: $list"
@@ -148,4 +254,4 @@ else
   physical="$physical scale $(printf '%s' "$out" | field scale) rotation $(printf '%s' "$out" | field rotation)"
 fi
 
-echo "ok: api34-fixture, $physical"
+echo "ok: api29, api29-seascape, api30, api31, api33, api34 fixtures, $physical"

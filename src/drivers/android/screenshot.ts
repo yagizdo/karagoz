@@ -14,6 +14,20 @@ const IEND = Buffer.from('0000000049454e44ae426082', 'hex');
 // The Android counterpart of iOS safeAreaInsets: systemBars() | displayCutout() (K23). The IME and the gesture
 // areas are left out, as iOS leaves out the keyboard.
 const SAFE_AREA_TYPES = new Set(['statusBars', 'navigationBars', 'captionBar', 'displayCutout']);
+// Android 11 to 13 print ITYPE_* names where Android 14 prints the public types (K23 2.2b).
+const LEGACY_TYPES = new Map([
+  ['ITYPE_STATUS_BAR', 'statusBars'],
+  ['ITYPE_CLIMATE_BAR', 'statusBars'],
+  ['ITYPE_NAVIGATION_BAR', 'navigationBars'],
+  ['ITYPE_EXTRA_NAVIGATION_BAR', 'navigationBars'],
+  ['ITYPE_LOCAL_NAVIGATION_BAR_1', 'navigationBars'],
+  ['ITYPE_LOCAL_NAVIGATION_BAR_2', 'navigationBars'],
+  ['ITYPE_CAPTION_BAR', 'captionBar'],
+  ['ITYPE_LEFT_DISPLAY_CUTOUT', 'displayCutout'],
+  ['ITYPE_TOP_DISPLAY_CUTOUT', 'displayCutout'],
+  ['ITYPE_RIGHT_DISPLAY_CUTOUT', 'displayCutout'],
+  ['ITYPE_BOTTOM_DISPLAY_CUTOUT', 'displayCutout'],
+]);
 
 const DUMP = "'dumpsys window displays'";
 
@@ -33,8 +47,29 @@ function parseDensity(text: string): number {
   return Number((/Override density: (\d+)/.exec(text) ?? physical)[1]);
 }
 
-// Display 0 of `dumpsys window displays`, text format verified on API 36 only (K23). No `$` anchors: `shell`
-// writes text mode on Windows, so lines may end in \r.
+// Android 10: its TYPE_* sources are not what apps get (the gesture bar reads 48 dp against 16 dp, and there is no
+// cutout source); its DisplayFrames block matches the app (K23 2.2b).
+function parseDisplayFrames(section: string, width: number, height: number) {
+  const frames = /^\s*DisplayFrames w=\d+ h=\d+ r=([0-3])\b/m.exec(section);
+  if (!frames) throw unreadable('rotation', DUMP, 'DisplayFrames r= value');
+  const dockLine = /^\s*mDock=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]/m.exec(section);
+  if (!dockLine) throw unreadable('safe area', DUMP, 'mDock= line');
+  const cutoutLine =
+    /mDisplayCutout=WmDisplayCutout\{DisplayCutout\{insets=Rect\((-?\d+), (-?\d+) - (-?\d+), (-?\d+)\)/.exec(section);
+  if (!cutoutLine) throw unreadable('safe area', DUMP, 'mDisplayCutout= insets');
+  const dock = rect(dockLine, 1);
+  const cutout = rect(cutoutLine, 1);
+  const safeArea = {
+    top: Math.max(dock.t, cutout.t),
+    right: Math.max(width - dock.r, cutout.r),
+    bottom: Math.max(height - dock.b, cutout.b),
+    left: Math.max(dock.l, cutout.l),
+  };
+  return { rotation: Number(frames[1]) * 90, safeArea };
+}
+
+// Display 0 of `dumpsys window displays`, text format verified on Android 10 to 14 and 16 (K23). No `$` anchors:
+// `shell` writes text mode on Windows, so lines may end in \r.
 function parseDisplay(text: string) {
   const start = /Display: mDisplayId=0(?!\d)/.exec(text);
   if (!start) throw unreadable('display 0', DUMP, 'Display: mDisplayId=0 section');
@@ -44,20 +79,25 @@ function parseDisplay(text: string) {
 
   const cur = /\bcur=(\d+)x(\d+)/.exec(section);
   if (!cur) throw unreadable('display size', DUMP, 'cur= value');
+  const width = Number(cur[1]);
+  const height = Number(cur[2]);
+  if (/^\s*InsetsSource type=TYPE_/m.test(section)) {
+    return { width, height, ...parseDisplayFrames(section, width, height) };
+  }
   const rotation = /^\s*mRotation=([0-3])\b/m.exec(section);
   if (!rotation) throw unreadable('rotation', DUMP, 'mRotation= line');
   const controller = section.indexOf('WindowInsetsStateController');
   if (controller === -1) throw unreadable('safe area', DUMP, 'WindowInsetsStateController section');
   const insets = section.slice(controller);
   const frameLine = /mDisplayFrame=Rect\((-?\d+), (-?\d+) - (-?\d+), (-?\d+)\)/.exec(insets);
-  if (!frameLine) throw unreadable('safe area', DUMP, 'mDisplayFrame= line');
-  const frame = rect(frameLine, 1);
+  // Android 11 prints no mDisplayFrame=; its display frame is the logical size at 0,0, which is cur=.
+  const frame = frameLine ? rect(frameLine, 1) : { l: 0, t: 0, r: width, b: height };
 
   // Only lines that start with `InsetsSource `: the same sources come again as `mSource=InsetsSource` under
   // InsetsSourceProviders and as `InsetsSourceControl:` under the control map (measured).
   const sources = [
     ...insets.matchAll(
-      /^\s*InsetsSource \S+ type=(\w+) frame=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\] visible=(true|false)/gm,
+      /^\s*InsetsSource (?:\S+ )?type=(\w+) frame=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\] visible=(true|false)/gm,
     ),
   ];
   if (!sources.length) throw unreadable('safe area', DUMP, 'InsetsSource line');
@@ -66,7 +106,8 @@ function parseDisplay(text: string) {
   const safeArea = { top: 0, right: 0, bottom: 0, left: 0 };
   for (const source of sources) {
     const { l, t, r, b } = rect(source, 2);
-    if (!SAFE_AREA_TYPES.has(source[1] ?? '') || source[6] !== 'true' || r <= l || b <= t) continue;
+    const type = source[1] ?? '';
+    if (!SAFE_AREA_TYPES.has(LEGACY_TYPES.get(type) ?? type) || source[6] !== 'true' || r <= l || b <= t) continue;
     const fullWidth = l === frame.l && r === frame.r;
     const fullHeight = t === frame.t && b === frame.b;
     if (fullWidth && t === frame.t) safeArea.top = Math.max(safeArea.top, b - frame.t);
@@ -74,7 +115,7 @@ function parseDisplay(text: string) {
     else if (fullHeight && l === frame.l) safeArea.left = Math.max(safeArea.left, r - frame.l);
     else if (fullHeight && r === frame.r) safeArea.right = Math.max(safeArea.right, frame.r - l);
   }
-  return { width: Number(cur[1]), height: Number(cur[2]), rotation: Number(rotation[1]) * 90, safeArea };
+  return { width, height, rotation: Number(rotation[1]) * 90, safeArea };
 }
 
 export async function screenshot(device: string | undefined, out: string | undefined) {
