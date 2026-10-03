@@ -86,10 +86,11 @@ if [ -z "$phone" ]; then
   echo "ok: physical skipped"
   exit 0
 fi
-serial=$phone
 
-# 3. The APKs, as smoke 1.5 builds them. 4. A leftover from an interrupted run is the smoke's own app.
+# 3. The APKs, as smoke 1.5 builds them, before serial is set: a failed build leaves the phone alone. 4. A leftover
+# from an interrupted run is the smoke's own app.
 sh smoke/fixtures/app-lifecycle/build.sh "$tmp"
+serial=$phone
 if installed dev.karagoz.smoke; then adb -s "$serial" uninstall dev.karagoz.smoke >/dev/null 2>&1 || true; fi
 
 # 5. install. A timeout means the phone may be holding the install on a prompt (K28 2.5 note).
