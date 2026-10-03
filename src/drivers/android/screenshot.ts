@@ -68,8 +68,8 @@ function parseDisplayFrames(section: string, width: number, height: number) {
   return { rotation: Number(frames[1]) * 90, safeArea };
 }
 
-// Display 0 of `dumpsys window displays`, text format verified on Android 10 to 16 (K23). No `$` anchors: `shell`
-// writes text mode on Windows, so lines may end in \r.
+// Display 0 of `dumpsys window displays`, text format verified on Android 10 to 14 and 16 (K23). No `$` anchors:
+// `shell` writes text mode on Windows, so lines may end in \r.
 function parseDisplay(text: string) {
   const start = /Display: mDisplayId=0(?!\d)/.exec(text);
   if (!start) throw unreadable('display 0', DUMP, 'Display: mDisplayId=0 section');
