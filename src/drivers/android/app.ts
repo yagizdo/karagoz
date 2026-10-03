@@ -1,12 +1,16 @@
 import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { KaragozError } from '../../errors.js';
-import { adb, TIMEOUT_MS } from './adb.js';
+import { adb } from './adb.js';
 import { resolveTarget } from './devices.js';
 
 // am start -W has no bound of its own; Android gives up after 10 s for a process to attach and 10 s idle after
 // resume (K28).
 const LAUNCH_TIMEOUT_MS = 30_000;
+
+// On GMS phones Android waits up to 17 s for Play Protect's scan, and Xiaomi's and vivo's USB-install prompts refuse
+// on their own after 10-11.6 s; a 10 s base gave up just before either answered (K28 2.5 note).
+const INSTALL_BASE_MS = 30_000;
 
 // Android's package-name alphabet. The value reaches a device shell (K28).
 export function checkPackage(value: string): void {
@@ -44,16 +48,22 @@ export async function install(device: string | undefined, apk: string) {
   if (!info) throw new KaragozError('INVALID_ARGS', `no file at '${path}'`);
   if (!info.isFile()) throw new KaragozError('INVALID_ARGS', `'${path}' is not a file`);
   const id = await resolveTarget(device);
+  const timeout = INSTALL_BASE_MS + Math.ceil(info.size / 1_000_000) * 1000;
   try {
     // --no-incremental: next to an .idsig adb installs incrementally through an `adb inc-server` that keeps stderr
     // open, and the call does not return until it exits. -r is implied since Android 9, kept for older devices (K28).
     // One more second per started MB, as input.ts adds a gesture's duration (K19 note, K28).
-    await adb(
-      ['-s', id, 'install', '-r', '--no-incremental', path],
-      TIMEOUT_MS + Math.ceil(info.size / 1_000_000) * 1000,
-    );
+    await adb(['-s', id, 'install', '-r', '--no-incremental', path], timeout);
   } catch (err) {
-    if (!(err instanceof KaragozError) || err.code !== 'ADB_FAILED') throw err;
+    if (!(err instanceof KaragozError)) throw err;
+    // An install prompt on the phone holds adb as a stuck server would; the fix is on the screen (K28 2.5 note).
+    if (err.code === 'ADB_TIMEOUT') {
+      throw new KaragozError(
+        'ADB_TIMEOUT',
+        `adb install did not finish within ${timeout / 1000}s. The phone may be showing an install prompt (Play Protect, or the maker's check for USB installs) that waits for a tap: look at its screen. If the prompt is accepted later, the app still installs. If no prompt is shown, the adb server may be stuck; try \`adb kill-server\`.`,
+      );
+    }
+    if (err.code !== 'ADB_FAILED') throw err;
     const reason = /Failure \[([A-Z0-9_]+)/.exec(err.message)?.[1];
     if (!reason) throw err;
     throw new KaragozError('INSTALL_FAILED', err.message, reason);

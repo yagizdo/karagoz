@@ -57,36 +57,8 @@ for verb in launch terminate uninstall; do
   refuses INVALID_ARGS "'a;b' is not a package name" "$verb" 'a;b'
 done
 
-# 2. Tools. The newest build-tools and platform on this machine; no version is pinned here.
-sdk=
-looked=
-for dir in "$ANDROID_HOME" "$ANDROID_SDK_ROOT" "$HOME/Library/Android/sdk" "$HOME/Android/Sdk"; do
-  [ -n "$dir" ] || continue
-  if [ -d "$dir/build-tools" ] && [ -d "$dir/platforms" ]; then sdk=$dir; break; fi
-  looked="$looked $dir"
-done
-[ -n "$sdk" ] || { echo "FAIL: no Android SDK with build-tools/ and platforms/ (looked in:$looked)"; exit 1; }
-# sort -V ranks 37.0.0-rc1 above 37.0.0, so only x.y.z names, sorted by number.
-bt=$(ls "$sdk/build-tools" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
-[ -n "$bt" ] && [ -x "$sdk/build-tools/$bt/aapt2" ] && [ -x "$sdk/build-tools/$bt/apksigner" ] \
-  || { echo "FAIL: no build-tools x.y.z with aapt2 and apksigner in $sdk/build-tools"; exit 1; }
-bt=$sdk/build-tools/$bt
-# API 37 ships only as android-37.0, .1 and .2.
-api=$(ls "$sdk/platforms" | sed -n 's/^android-\([0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)$/\1/p' | sort -t. -k1,1n -k2,2n | tail -n 1)
-[ -n "$api" ] && [ -f "$sdk/platforms/android-$api/android.jar" ] \
-  || { echo "FAIL: no platforms/android-N/android.jar in $sdk/platforms"; exit 1; }
-command -v java >/dev/null || { echo "FAIL: java is not on PATH; apksigner runs it"; exit 1; }
-command -v keytool >/dev/null || { echo "FAIL: keytool is not on PATH; it comes with the JDK"; exit 1; }
-
-# 3. The APK: manifest only, no code (K28). Without --v4-signing-enabled false apksigner writes an .idsig, and adb
-# installs incrementally next to one. apksigner's stderr holds JDK 24+ warnings; its exit code decides.
-"$bt/aapt2" link -o "$tmp/u.apk" -I "$sdk/platforms/android-$api/android.jar" \
-  --manifest smoke/fixtures/app-lifecycle/AndroidManifest.xml --min-sdk-version 24 --target-sdk-version "${api%%.*}" \
-  || { echo "FAIL: aapt2 failed"; exit 1; }
-keytool -genkeypair -keystore "$tmp/k.jks" -storepass android -keypass android -alias k -keyalg RSA -keysize 2048 \
-  -validity 1 -dname CN=karagoz-smoke >/dev/null 2>&1 || { echo "FAIL: keytool failed"; exit 1; }
-"$bt/apksigner" sign --ks "$tmp/k.jks" --ks-pass pass:android --v4-signing-enabled false --out "$tmp/smoke.apk" \
-  "$tmp/u.apk" 2>/dev/null || { echo "FAIL: apksigner failed"; exit 1; }
+# 2-3. Tools and the APK: manifest only, no code (K28), built on every run by the script both app smokes share.
+sh smoke/fixtures/app-lifecycle/build.sh "$tmp"
 
 # 4. The first ready emulator. Every live call names it, so a second device cannot cause DEVICE_AMBIGUOUS. A leftover
 # from an interrupted run is removed.
@@ -105,7 +77,6 @@ want="{\"device\":\"$id\",\"path\":\"$tmp/smoke.apk\"}"
 adb -s "$id" shell pm path dev.karagoz.smoke >/dev/null || { echo "FAIL: pm path finds no dev.karagoz.smoke after install"; exit 1; }
 
 # 6. A file that is not an APK: Android's code arrives as the reason.
-printf x > "$tmp/bad.apk"
 refuses INSTALL_FAILED '' install "$tmp/bad.apk" --device "$id"
 [ "$(printf '%s' "$got" | reason_of)" = INSTALL_PARSE_FAILED_NOT_APK ] \
   || { echo "FAIL: install bad.apk: expected the reason INSTALL_PARSE_FAILED_NOT_APK, got: $got"; exit 1; }
@@ -167,6 +138,8 @@ case "$*" in
   *'exec-out pm path dev.karagoz.x') echo 'package:/data/app/x/base.apk' ;;
   *'exec-out cmd package uninstall dev.karagoz.x') echo 'Failure [DELETE_FAILED_INTERNAL_ERROR]' ;;
   *'exec-out am force-stop dev.karagoz.x') echo "Exception occurred while executing 'force-stop':" ;;
+  # exec: the timeout kills only the direct child, and a forked sleep would outlive the run.
+  *' install -r --no-incremental '*) exec /bin/sleep 61 ;;
   *) echo "fake adb: unexpected arguments: $*" >&2; exit 1 ;;
 esac
 FAKE
@@ -193,4 +166,12 @@ error_is b UNINSTALL_FAILED 'Failure [DELETE_FAILED_INTERNAL_ERROR]'
 if fake_run terminate dev.karagoz.x --device emulator-5554; then echo "FAIL: fixture c exited 0: $got"; exit 1; fi
 error_is c ADB_FAILED "Exception occurred while executing 'force-stop':"
 
-echo "ok: $id, install, launch, terminate, uninstall, fake adb"
+# d. An install held on the phone (a prompt nobody answers) times out with a message that names the screen first.
+start=$(date +%s)
+if fake_run install "$tmp/bad.apk" --device emulator-5554; then echo "FAIL: fixture d exited 0: $got"; exit 1; fi
+elapsed=$(($(date +%s) - start))
+error_is d ADB_TIMEOUT "adb install did not finish within 31s. The phone may be showing an install prompt (Play Protect, or the maker's check for USB installs) that waits for a tap: look at its screen. If the prompt is accepted later, the app still installs. If no prompt is shown, the adb server may be stuck; try \`adb kill-server\`."
+[ "$elapsed" -ge 30 ] && [ "$elapsed" -le 40 ] || { echo "FAIL: fixture d took $elapsed s, expected about 31"; exit 1; }
+if pgrep -fx '/bin/sleep 61' >/dev/null; then echo "FAIL: fixture d left the fake adb's sleep running"; exit 1; fi
+
+echo "ok: $id, install, launch, terminate, uninstall, fake adb, install timeout"

@@ -114,7 +114,7 @@ const TOOLS: Tool[] = [
     name: 'install',
     title: 'Install an APK',
     description:
-      'Install an APK, or replace the installed version of the same app. Times out after 10 s plus 1 s per MB.',
+      'Install an APK, or replace the installed version of the same app. Times out after 30 s plus 1 s per MB.',
     inputSchema: {
       type: 'object',
       properties: { apk: { type: 'string', description: 'Absolute path to the .apk file.' }, device },
