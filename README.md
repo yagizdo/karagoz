@@ -54,9 +54,9 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`uninstall`](#uninstall) | done | done | planned | planned |
 | [`logs`](#logs) | done | done | planned | planned |
 | [`doctor`](#doctor) | done | done | planned | planned |
-| [MCP server](#mcp-server) | done | | | |
+| [MCP server](#mcp-server) | done | done | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator, and Claude Code and Codex called its tools. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator and Claude Code and Codex called its tools; in the Android device column it means its tools returned results from a phone over USB. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -140,7 +140,7 @@ A phone connected over Wi-Fi as well as USB is listed twice, once per serial, an
 
 ### Accessibility tree first
 
-To see the screen, read `ui-tree` before taking a screenshot. The tree is text a program can search, costs a few hundred to a few thousand tokens, and gives the bounds needed to tap. A screenshot is written to disk and returned as a path; the CLI never prints the image.
+To see the screen, read `ui-tree` before taking a screenshot. The tree is text a program can search, costs about a thousand to a few thousand tokens, and gives the bounds needed to tap. A screenshot is written to disk and returned as a path; the CLI never prints the image.
 
 ## Output and errors
 
@@ -372,7 +372,7 @@ What the tree covers is what uiautomator covers: the focused window, and nodes v
 **Notes**
 
 - One read takes 2.4 to 3.3 s; a screen with a fresh WebView about 5.3 s. The idle failure arrives after about 12 s.
-- Output size on real screens was 560 to 3,900 tokens.
+- Output size on the screens measured was about 900 to 6,200 tokens.
 - While a read runs, accessibility services such as TalkBack are unbound, and apps see accessibility as enabled. A service that requests the accessibility button is taken off the button and shortcut and stays off; add it back in the accessibility settings.
 
 ### tap
@@ -910,15 +910,15 @@ A real exchange, one line per message, `-->` sent and `<--` received. The `data`
 
 ### Token cost
 
-What the server adds to a Claude Code session, measured on this build on 2026-09-29 with Claude Code 2.1.284 and `claude-opus-5-5`: input tokens of the first API call with karagoz registered, minus the same call with no MCP server.
+What the server adds to a Claude Code session, measured on this build on 2026-10-04 with Claude Code 2.1.289 and `claude-opus-5-5`: input tokens of the first API call with karagoz registered, minus the same call with no MCP server.
 
 | Case | Tokens |
 | --- | --- |
-| Every session, tool search on (the default): the 13 tool names and `instructions` | 331 |
-| All 13 definitions, loaded by one `ToolSearch` call | 2,247 |
-| Every session, tool search off (`ENABLE_TOOL_SEARCH=false`): every definition and `instructions` | 2,129 |
+| Every session, tool search on (the default): the 13 tool names and `instructions` | 325 |
+| All 13 definitions, loaded by one `ToolSearch` call | 2,215 |
+| Every session, tool search off (`ENABLE_TOOL_SEARCH=false`): every definition and `instructions` | 2,091 |
 
-The `tools/list` result is 5,682 characters and `instructions` 383. One `ui_tree` of the launcher home screen is 5,383 characters.
+The `tools/list` result is 5,643 characters and `instructions` 373. One `ui_tree` of the launcher home screen is 5,383 characters.
 
 ## Scope
 

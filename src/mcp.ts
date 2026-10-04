@@ -7,9 +7,9 @@ import { cancellation } from './drivers/android/adb.js';
 import { KaragozError } from './errors.js';
 
 const INSTRUCTIONS =
-  'karagoz drives Android emulators over adb. To see the screen, call ui_tree first: node bounds are the physical pixels tap and swipe take; take a screenshot only when you need the image. Pass device (serial or AVD name) only when more than one device is connected. Each result is one JSON object; on failure, branch on error.code. If adb is missing or the wrong one runs, call doctor.';
+  'karagoz drives Android emulators and phones over adb. To see the screen, call ui_tree first: node bounds are the physical pixels tap and swipe take; take a screenshot only when you need the image. Pass device only when more than one device is connected. Each result is one JSON object; on failure, branch on error.code. If adb is missing or the wrong one runs, call doctor.';
 
-const device = { type: 'string', description: 'Serial or AVD name.' };
+const device = { type: 'string', description: 'Serial or name.' };
 
 const TOOLS: Tool[] = [
   {
@@ -61,7 +61,7 @@ const TOOLS: Tool[] = [
         timeout: {
           type: 'integer',
           description:
-            'With text or id: ms to keep reading the tree until the node appears; the call can run ~3 s longer.',
+            'With text or id: ms to keep reading the tree until the node appears; the call can run up to 6 s longer.',
         },
         device,
       },
