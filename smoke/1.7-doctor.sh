@@ -91,7 +91,7 @@ refuses INVALID_ARGS "'doctor' does not take the option '--device'" doctor --dev
 mkdir -p "$tmp/empty"
 doc PATH="$tmp/empty"
 is missing "{\"adb\":{\"status\":\"missing\",\"install\":\"$hint\",\"candidates\":[$home_unset,$root_unset,$path_missing,$default_missing]}}"
-if got=$(env -i HOME="$tmp/home" PATH="$tmp/empty" "$node_bin" dist/cli.js devices 2>/dev/null); then
+if got=$(env -i HOME="$tmp/home" PATH="$tmp/empty" DEVELOPER_DIR="$tmp/empty" "$node_bin" dist/cli.js devices 2>/dev/null); then
   echo "FAIL: devices without adb exited 0: $got"
   exit 1
 fi

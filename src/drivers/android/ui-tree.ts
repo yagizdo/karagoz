@@ -1,5 +1,6 @@
 import { KaragozError } from '../../errors.js';
-import { adb, cancellation } from './adb.js';
+import { cancellation } from '../../cancellation.js';
+import { adb } from './adb.js';
 import { resolveTarget } from './devices.js';
 
 // uiautomator's own idle failure arrives after 11.3-12.2 s (measured), and a client killed at 10 s leaves the device

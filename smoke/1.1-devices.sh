@@ -26,8 +26,9 @@ emu=$(echo "$out" | node -e '
   console.log(JSON.stringify(found));
 ') || { echo "FAIL: no ready, named emulator listed (is one running? emulator -avd <name>)"; exit 1; }
 
-# 2. No adb anywhere: empty PATH, no SDK env, HOME without a default SDK.
-if miss=$(env -i HOME="$tmp" PATH="$tmp" "$node_bin" dist/cli.js devices 2>/dev/null); then echo "FAIL: missing adb exited 0"; exit 1; fi
+# 2. No adb anywhere: empty PATH, no SDK env, HOME without a default SDK. On macOS DEVELOPER_DIR without a simctl
+# fails iOS too; with iOS listed, a missing adb is an errors entry and exit 0 (smoke 3.1).
+if miss=$(env -i HOME="$tmp" PATH="$tmp" DEVELOPER_DIR="$tmp" "$node_bin" dist/cli.js devices 2>/dev/null); then echo "FAIL: missing adb exited 0"; exit 1; fi
 [ "$(echo "$miss" | code_of)" = ADB_NOT_FOUND ] || { echo "FAIL: expected ADB_NOT_FOUND, got: $miss"; exit 1; }
 
 # 3. adb hangs: point it at a port that accepts and never answers.
@@ -35,7 +36,7 @@ node -e 'const s = require("net").createServer(() => {}).listen(0, "127.0.0.1", 
 listener=$!
 while [ ! -s "$tmp/port" ]; do kill -0 "$listener" || { echo "FAIL: listener did not start"; exit 1; }; sleep 0.1; done
 start=$(date +%s)
-if hang=$(ANDROID_ADB_SERVER_PORT=$(cat "$tmp/port") node dist/cli.js devices 2>/dev/null); then echo "FAIL: hung adb exited 0"; exit 1; fi
+if hang=$(ANDROID_ADB_SERVER_PORT=$(cat "$tmp/port") DEVELOPER_DIR="$tmp" node dist/cli.js devices 2>/dev/null); then echo "FAIL: hung adb exited 0"; exit 1; fi
 elapsed=$(($(date +%s) - start))
 [ "$(echo "$hang" | code_of)" = ADB_TIMEOUT ] || { echo "FAIL: expected ADB_TIMEOUT, got: $hang"; exit 1; }
 [ "$elapsed" -lt 15 ] || { echo "FAIL: timeout took ${elapsed}s"; exit 1; }

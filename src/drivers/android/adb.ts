@@ -1,9 +1,9 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
+import { cancellation } from '../../cancellation.js';
 import { KaragozError } from '../../errors.js';
 
 const run = promisify(execFile);
@@ -71,10 +71,6 @@ let resolved: string | undefined;
 
 // For doctor: under `karagoz mcp` resolved lives for the session and adbBytes tries it first (K19 M notes).
 export const cachedAdb = (): string | undefined => resolved;
-
-// The MCP server runs each call inside cancellation.run(signal, ...); the CLI never does, so the store is empty there
-// and nothing changes (K31).
-export const cancellation = new AsyncLocalStorage<AbortSignal>();
 
 // Runs adb and returns its stdout. adb's own stderr (e.g. "* daemon started successfully") is passed through.
 // The bytes form exists because a screenshot PNG must not pass through a text decode; adb() below decodes the

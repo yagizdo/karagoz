@@ -1,10 +1,10 @@
 import { install, launch, terminate, uninstall } from './drivers/android/app.js';
-import { listDevices } from './drivers/android/devices.js';
 import { doctor } from './drivers/android/doctor.js';
 import { key, swipe, tap, text, type Target } from './drivers/android/input.js';
 import { logs } from './drivers/android/logs.js';
 import { screenshot } from './drivers/android/screenshot.js';
 import { uiTree } from './drivers/android/ui-tree.js';
+import { listAll } from './devices.js';
 import { KaragozError, type ErrorCode } from './errors.js';
 
 // Every command option takes a value, so a command receives its options as strings. args names the positional
@@ -53,7 +53,7 @@ function count(label: string, value = ''): number {
 }
 
 export const commands: Record<string, Command> = {
-  devices: { options: {}, args: [], run: async () => ({ devices: await listDevices() }) },
+  devices: { options: {}, args: [], run: () => listAll() },
   screenshot: {
     options: { device: { type: 'string' }, out: { type: 'string' } },
     args: [],
