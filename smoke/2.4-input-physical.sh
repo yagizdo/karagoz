@@ -108,7 +108,7 @@ focused() { node -e '
 
 # On a ui-tree result: the search entry, the first clickable node with non-zero bounds whose resourceId contains
 # "search" (any case) and whose class is not editable; failing that, the first such node whose contentDesc contains
-# "search" (One UI 6.1's Settings search is a Button with no id, described "Search settings"). Prints
+# "search" (One UI 6.1's Settings search is a Button with no id and a content description only). Prints
 # "<x> <y> id <suffix>" (the part after :id/, the whole id when it has none) or "<x> <y> text <contentDesc>". Exits 1
 # when there is none. The target is last so `read` keeps it whole.
 search_entry() { node -e '
