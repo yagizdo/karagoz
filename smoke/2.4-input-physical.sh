@@ -4,7 +4,7 @@
 # element are refused; the keyboard reports the touchable region ELEMENT_COVERED reads.
 # Precondition: the build only; a phone is optional, and no emulator is needed. If a phone is used: screen on and
 # unlocked, no other UiAutomation client connected, and a Settings app whose home page has a search entry (a clickable
-# node whose resource id contains "search").
+# node whose resource id, or failing that whose content description, contains "search").
 # What reaches a phone: reads (`adb devices`, the getprop of `devices`, `settings get`, `dumpsys power`, `dumpsys window
 # policy`, `dumpsys window -a InputMethod`, `dumpsys window windows`, `dumpsys accessibility`, `cmd package
 # resolve-activity`, `pidof uiautomator`, `wm size`); `am start -W -a android.settings.SETTINGS`; karagoz `ui-tree`,
@@ -107,21 +107,25 @@ focused() { node -e '
 ' "$@"; }
 
 # On a ui-tree result: the search entry, the first clickable node with non-zero bounds whose resourceId contains
-# "search" (any case) and whose class is not editable. Prints "<x> <y> <suffix>": its center and the part after :id/
-# (the whole id when it has none). Exits 1 when there is none. The suffix is last so `read` keeps it whole.
+# "search" (any case) and whose class is not editable; failing that, the first such node whose contentDesc contains
+# "search" (One UI 6.1's Settings search is a Button with no id and a content description only). Prints
+# "<x> <y> id <suffix>" (the part after :id/, the whole id when it has none) or "<x> <y> text <contentDesc>". Exits 1
+# when there is none. The target is last so `read` keeps it whole.
 search_entry() { node -e '
   const nodes = [];
   const walk = (n) => { nodes.push(n); (n.children ?? []).forEach(walk); };
   walk(JSON.parse(require("fs").readFileSync(0, "utf8")).root);
   const area = (n) => Array.isArray(n.bounds) && n.bounds[2] > n.bounds[0] && n.bounds[3] > n.bounds[1];
   const editable = (n) => typeof n.class === "string" && /(EditText|AutoCompleteTextView)$/.test(n.class);
-  const entry = nodes.find((n) => n.clickable === true && area(n) && !editable(n)
-    && typeof n.resourceId === "string" && n.resourceId.toLowerCase().includes("search"));
+  const has = (n, key) => typeof n[key] === "string" && n[key].toLowerCase().includes("search");
+  const tappable = nodes.filter((n) => n.clickable === true && area(n) && !editable(n));
+  const entry = tappable.find((n) => has(n, "resourceId")) ?? tappable.find((n) => has(n, "contentDesc"));
   if (!entry) process.exit(1);
   const id = entry.resourceId;
-  const suffix = id.includes(":id/") ? id.slice(id.indexOf(":id/") + 4) : id;
+  const target = !has(entry, "resourceId") ? `text ${entry.contentDesc}`
+    : `id ${id.includes(":id/") ? id.slice(id.indexOf(":id/") + 4) : id}`;
   const [l, t, r, b] = entry.bounds;
-  console.log((l + r) / 2, (t + b) / 2, suffix);
+  console.log((l + r) / 2, (t + b) / 2, target);
 '; }
 
 # On a ui-tree result: how many nodes with an area `tap --id $1` matches (karagoz's own rule).
@@ -269,10 +273,12 @@ adb -s "$serial" shell am start -W -a android.settings.SETTINGS >/dev/null 2>&1 
   || fail "adb -s $serial shell am start -W -a android.settings.SETTINGS failed"
 wait_until 30 'front "$settings"' "Settings was not in front within 30 s after am start"
 entry=$(printf '%s' "$tree" | search_entry) || fail "no search entry on the Settings home page"
-read -r sx sy suffix <<EOF
+read -r sx sy by target <<EOF
 $entry
 EOF
-[ "$(printf '%s' "$tree" | id_count "$suffix")" = 1 ] || fail "the Settings search entry id is not unique"
+if [ "$by" = id ]; then
+  [ "$(printf '%s' "$tree" | id_count "$target")" = 1 ] || fail "the Settings search entry id is not unique"
+fi
 
 # 6. Point tap on the entry: the search opens with its field focused.
 run tap "$sx" "$sy"
@@ -326,14 +332,20 @@ keys 5 DEL
 run key BACK
 wait_until 30 'front "$settings"' "Settings was not in front within 30 s after leaving the search"
 
-# 11. Element taps: the entry by --id, an ambiguous id, a missing label.
-run tap --id "$suffix"
-rid=$(printf '%s' "$out" | field element.resourceId) || fail "tap --id output has no element.resourceId"
-case $rid in "$suffix" | *":id/$suffix") ;; *) fail "tap --id tapped another element than the search entry" ;; esac
+# 11. Element taps: the entry by --id (--text when it has no id), an ambiguous id, a missing label.
+if [ "$by" = id ]; then
+  run tap --id "$target"
+  rid=$(printf '%s' "$out" | field element.resourceId) || fail "tap --id output has no element.resourceId"
+  case $rid in "$target" | *":id/$target") ;; *) fail "tap --id tapped another element than the search entry" ;; esac
+else
+  run tap --text "$target"
+  [ "$(printf '%s' "$out" | field element.contentDesc)" = "$target" ] \
+    || fail "tap --text tapped another element than the search entry"
+fi
 [ "$(printf '%s' "$out" | field x)" = "$sx" ] && [ "$(printf '%s' "$out" | field y)" = "$sy" ] \
-  || fail "tap --id did not tap the search entry's center"
-wait_until 30 has_field "no focused editable field within 30 s after tap --id"
-wait_until 10 "ime_is 'true *'" "the keyboard did not show after tap --id"
+  || fail "tap --$by did not tap the search entry's center"
+wait_until 30 has_field "no focused editable field within 30 s after tap --$by"
+wait_until 10 "ime_is 'true *'" "the keyboard did not show after tap --$by"
 run key BACK
 wait_until 10 "ime_is 'false *'" "the keyboard did not hide after key BACK"
 run key BACK
