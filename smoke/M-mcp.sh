@@ -15,8 +15,8 @@ cd "$(dirname "$0")/.."
 npm run --silent build
 
 tmp=$(mktemp -d)
-# set +e: errexit stays on inside the trap. sleep 97.31 is the fake adb's hang; the pkill is a safety net.
-trap 'set +e; pkill -f "sleep 97\.31"; rm -rf "$tmp"' EXIT
+# set +e: errexit stays on inside the trap. sleep 97.31 and 97.41 are the fake adb and simctl hangs; the pkill is a safety net.
+trap 'set +e; pkill -f "sleep 97\.(31|41)"; rm -rf "$tmp"' EXIT
 # Prints .error.code, or not-json. The envelope must be exactly one line (K5).
 code_of() { node -e '
   const out = require("fs").readFileSync(0, "utf8").trimEnd();
@@ -100,6 +100,14 @@ case "$*" in
 esac
 FAKE
 chmod +x "$tmp/sdk/platform-tools/adb"
+# A fake simctl for the same servers: no simulator, and a hang on demand.
+mkdir -p "$tmp/dev/usr/bin"
+cat > "$tmp/dev/usr/bin/simctl" <<'FAKE'
+#!/bin/sh
+[ -e "$FAKE/simctl-hang" ] && exec sleep 97.41
+echo '{"devices":{}}'
+FAKE
+chmod +x "$tmp/dev/usr/bin/simctl"
 printf '%s' "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\"><node class=\"android.widget.FrameLayout\" package=\"dev.karagoz.fake\" bounds=\"[0,0][100,100]\" /></hierarchy>" \
   > "$tmp/fake/tree.xml"
 
@@ -191,7 +199,8 @@ async function until(predicate, ms) {
   return predicate();
 }
 // The env of a server on the fake adb: built from nothing, so no real adb is on PATH or in the default SDK.
-const fake = (extra = {}) => ({ PATH: '/usr/bin:/bin', HOME: `${tmp}/home`, ANDROID_HOME: `${tmp}/sdk`, FAKE: `${tmp}/fake`, ...extra });
+// DEVELOPER_DIR points at a fake simctl, so no simulator running on the Mac reaches the exact devices lines (smoke 3.1).
+const fake = (extra = {}) => ({ PATH: '/usr/bin:/bin', HOME: `${tmp}/home`, ANDROID_HOME: `${tmp}/sdk`, DEVELOPER_DIR: `${tmp}/dev`, FAKE: `${tmp}/fake`, ...extra });
 
 // Handshake.
 const versions = ['2025-11-25', '2025-06-18'];
@@ -300,6 +309,19 @@ const listed = await faked.call('devices', {});
 if (text(listed) !== '{"devices":[{"id":"fake-1","platform":"android","kind":"physical","state":"device","name":null}]}') {
   fail(`cancel: devices after the cancel: ${JSON.stringify(listed)}`);
 }
+
+// Cancel, fake simctl: the iOS listing's simctl dies with the call too, and nothing answers it.
+const simctlHang = `${tmp}/fake/simctl-hang`;
+const simctlSleeping = () => running('sleep 97\\.41');
+writeFileSync(simctlHang, '');
+const hungIos = faked.send('tools/call', { name: 'devices', arguments: {} });
+if (!(await until(simctlSleeping, 3000))) fail('cancel simctl: the fake simctl never started sleep 97.41');
+faked.notify('notifications/cancelled', { requestId: hungIos, reason: 'smoke' });
+if (!(await until(() => !simctlSleeping(), 2000))) fail('cancel simctl: sleep 97.41 still running 2 s after notifications/cancelled');
+await sleep(500);
+if (faked.answered(hungIos)) fail('cancel simctl: the cancelled call was answered');
+if (faked.stderr.some((line) => line.startsWith('karagoz:'))) fail(`cancel simctl: stderr ${JSON.stringify(faked.stderr)}`);
+rmSync(simctlHang);
 
 // Exit, fake adb: stdin close, SIGTERM and SIGINT each end the server with its code and leave no adb child.
 writeFileSync(hang, '');

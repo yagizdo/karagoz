@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI, and `karagoz mcp` serves the same commands to an AI agent as an [MCP server](#mcp-server).
 
-> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. The other three targets are not written yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. `devices` also lists iOS simulators; nothing else is written for iOS yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -41,7 +41,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 
 | Command | Android emulator | Android device | iOS simulator | iOS device |
 | --- | --- | --- | --- | --- |
-| [`devices`](#devices) | done | done | planned | planned |
+| [`devices`](#devices) | done | done | done | planned |
 | [`screenshot`](#screenshot) | done | done | planned | planned |
 | [`ui-tree`](#ui-tree) | done | done | planned | planned |
 | [`tap`](#tap) | done | done | planned | planned |
@@ -56,7 +56,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`doctor`](#doctor) | done | done | planned | planned |
 | [MCP server](#mcp-server) | done | done | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator and Claude Code and Codex called its tools; in the Android device column it means its tools returned results from a phone over USB. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. In the iOS simulator column it means `smoke/3.1-devices-ios.sh` passes on macOS. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator and Claude Code and Codex called its tools; in the Android device column it means its tools returned results from a phone over USB. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -76,6 +76,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 - **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
 - For `smoke/1.5-app-lifecycle.sh`, and for `smoke/2.5-app-lifecycle-physical.sh` when a phone is attached: a JDK and Android SDK build-tools with one platform. Both smokes build their own test APK, `dev.karagoz.smoke`, and remove it at the end. See [Development](#development).
 - For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked: on a lock screen `text` and `key` type into the PIN field, and a wrong PIN counts as a failed unlock attempt; with the screen off, taps are dropped and keys still arrive. Both exit `0`.
+- **Xcode, opened once**, for iOS simulators in `devices` (macOS only). karagoz runs CoreSimulator's own `simctl` (`/Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl`), or `$DEVELOPER_DIR/usr/bin/simctl` when `DEVELOPER_DIR` is set. The Command Line Tools alone have no `simctl`.
 
 ## Install
 
@@ -119,7 +120,7 @@ Every command except `devices` works on one device, picked in this order:
 2. the `ANDROID_SERIAL` environment variable (ignored when `--device` is given; empty counts as unset)
 3. the only listed device
 
-The value is matched against adb serials first (`emulator-5554`), exactly. If no serial matches, it is matched against every `name` that [`devices`](#devices) prints: an emulator's AVD name (`Medium_Phone_API_36.1`) or a phone's model (`SM-S908N`), exactly and case-sensitively.
+The value is matched against adb serials first (`emulator-5554`), exactly. If no serial matches, it is matched against every `name` that [`devices`](#devices) prints for an Android device: an emulator's AVD name (`Medium_Phone_API_36.1`) or a phone's model (`SM-S908N`), exactly and case-sensitively.
 
 | Situation | Error |
 | --- | --- |
@@ -127,6 +128,8 @@ The value is matched against adb serials first (`emulator-5554`), exactly. If no
 | No value, nothing connected | `NO_DEVICE` |
 | No value and two or more devices listed (in any state), or a name that matches two entries: the same AVD listed as `emulator-5554` and `127.0.0.1:5555`, or two phones of the same model | `DEVICE_AMBIGUOUS` |
 | The picked device is not in state `device` (`offline`, `unauthorized`, ...) | `DEVICE_NOT_READY` |
+
+iOS simulators that `devices` lists cannot be picked yet, and are not counted for 3. or for `DEVICE_AMBIGUOUS`.
 
 karagoz never guesses between devices. There is no config file and no other environment variable.
 
@@ -187,9 +190,12 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | `NO_COMMAND` | No command given. The message lists the commands. | all |
 | `UNKNOWN_COMMAND` | The command name is not known. | all |
 | `INVALID_ARGS` | Missing, extra, malformed or unknown arguments, an unknown key name, an APK path that is not an existing `.apk` file, a screenshot `--out` that does not end in `.png`, a malformed package name, a `--since` that is not Unix time in seconds, or a `--lines` outside 1 to 999999999. | all |
-| `ADB_NOT_FOUND` | No `adb` found. See [Requirements](#requirements). | all that reach adb, except `doctor`, which reports these in its output |
-| `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 30 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump, and for `install` an install prompt on the phone, which the message names first. | all that reach adb, except `doctor`, which reports these in its output |
-| `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. For `logs`, logcat's own error text or output that is not whole log records. A device that disconnects mid-command ends here. | all that reach adb, except `doctor`, which reports these in its output |
+| `ADB_NOT_FOUND` | No `adb` found. See [Requirements](#requirements). | all that reach adb, except `doctor`, which reports these in its output; `devices` reports them in `errors` when the other platform could be listed |
+| `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 30 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump, and for `install` an install prompt on the phone, which the message names first. | all that reach adb, except `doctor`, which reports these in its output; `devices` reports them in `errors` when the other platform could be listed |
+| `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. For `logs`, logcat's own error text or output that is not whole log records. A device that disconnects mid-command ends here. | all that reach adb, except `doctor`, which reports these in its output; `devices` reports them in `errors` when the other platform could be listed |
+| `SIMCTL_NOT_FOUND` | No `simctl` found: Xcode is missing or was never opened, or `DEVELOPER_DIR` points somewhere without one. See [Requirements](#requirements). | `devices`, inside `errors` |
+| `SIMCTL_TIMEOUT` | simctl did not answer in 30 s. | `devices`, inside `errors` |
+| `SIMCTL_FAILED` | simctl exited with an error, or printed something that is not its device list. The message is simctl's stderr, or Node's error when simctl printed nothing; for unexpected output, `unexpected simctl output:` and its first line. | `devices`, inside `errors` |
 | `NO_DEVICE` | No device connected and none named. | all but `devices` and `doctor` |
 | `DEVICE_NOT_FOUND` | The named device is not connected. | all but `devices` and `doctor` |
 | `DEVICE_AMBIGUOUS` | More than one device and none named, or a name that matches more than one. | all but `devices` and `doctor` |
@@ -233,7 +239,7 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 karagoz devices
 ```
 
-Lists what `adb devices` lists. Takes no options.
+Lists what `adb devices` lists and, on macOS, the iOS simulators that are running. Takes no options.
 
 **Output**
 
@@ -247,21 +253,31 @@ A phone on USB next to the emulator (serial masked):
 {"devices":[{"id":"XXXXXXXXXXX","platform":"android","kind":"physical","state":"device","name":"SM-S908N"},{"id":"emulator-5554","platform":"android","kind":"emulator","state":"device","name":"Medium_Phone_API_36.1"}]}
 ```
 
+An iOS simulator running next to the emulator (macOS):
+
+```json
+{"devices":[{"id":"emulator-5554","platform":"android","kind":"emulator","state":"device","name":"Medium_Phone_API_36.1"},{"id":"4E70BFCA-5FC6-49B5-92EC-48E265B2D50F","platform":"ios","kind":"simulator","state":"Booted","name":"iPhone 17 Pro"}]}
+```
+
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `id` | string | The adb serial. Pass it to `--device`. |
-| `platform` | `"android"` | |
-| `kind` | `"emulator"` or `"physical"` | `emulator` when the id is `emulator-<port>`, or when the device reports `ro.boot.qemu` or `ro.kernel.qemu` as `1`, or `ro.hardware` as `ranchu` or `goldfish` (an emulator attached with `adb connect`). Genymotion, and other ids not in state `device`, read as `physical`. |
-| `state` | string | adb's state, unchanged: `device`, `offline`, `unauthorized`, ... Only `device` can be used. |
-| `name` | string or `null` | The AVD name for emulators, the model (`ro.product.model`) for phones. `null` when the device does not answer, or when it is not in state `device` and its id is not `emulator-<port>`. |
+| `id` | string | The adb serial, or the simulator's UDID. Pass an adb serial to `--device`. |
+| `platform` | `"android"` or `"ios"` | |
+| `kind` | `"emulator"`, `"physical"` or `"simulator"` | `simulator` for iOS simulators. `emulator` when the id is `emulator-<port>`, or when the device reports `ro.boot.qemu` or `ro.kernel.qemu` as `1`, or `ro.hardware` as `ranchu` or `goldfish` (an emulator attached with `adb connect`). Genymotion, and other ids not in state `device`, read as `physical`. |
+| `state` | string | adb's state, unchanged: `device`, `offline`, `unauthorized`, ... Only `device` can be used. For simulators, simctl's state: `Booted`, `Booting`, `Shutting Down`; only `Booted` will be usable. |
+| `name` | string or `null` | The AVD name for emulators, the model (`ro.product.model`) for phones, the simulator's name for simulators. `null` when the device does not answer, or when it is not in state `device` and its id is not `emulator-<port>`. |
 
-No devices is not an error: `{"devices":[]}`, exit `0`. Devices keep adb's order.
+No devices is not an error: `{"devices":[]}`, exit `0`. Android devices come first in adb's order, then simulators in simctl's order.
 
-**Errors:** `INVALID_ARGS`, `ADB_NOT_FOUND`, `ADB_TIMEOUT`, `ADB_FAILED`.
+If adb or simctl is missing, fails or hangs, the other platform is still listed, `errors` holds one `{"platform","code","message"}` per failed platform, and the exit is `0`. When every platform tried fails, Android's error is printed as the usual envelope and the exit is `1`. On Linux and Windows simulators are not looked for.
+
+**Errors:** `INVALID_ARGS`, `ADB_NOT_FOUND`, `ADB_TIMEOUT`, `ADB_FAILED`; `SIMCTL_NOT_FOUND`, `SIMCTL_TIMEOUT`, `SIMCTL_FAILED` inside `errors` only.
 
 **Notes**
 
 - About 55 ms, plus about 50 ms per emulator for its name, asked in parallel. A device whose id is not `emulator-<port>` costs one more call in parallel, a chained `getprop` of about 135 ms. With a phone on USB and one emulator, the whole `karagoz devices` run took 257 to 289 ms (three runs, macOS).
+- On macOS the simulator listing runs in parallel with adb and takes about 0.12 s once the simulator service runs. The first call after login can take several seconds while macOS starts that service (30 s limit).
+- Shut-down simulators, and watchOS, tvOS and visionOS simulators, are not listed.
 - A device listed as `(no serial number)`, or two devices that share one serial, cannot be targeted: adb's `-s` cannot tell them apart.
 - karagoz does not pair or connect over Wi-Fi. Use `adb pair` and `adb connect`; a paired Android 11+ phone reconnects by itself.
 - If an emulator's name comes back `null`, check that `HOME` points to your home directory; the emulator console reads a token from there.
@@ -910,7 +926,7 @@ A real exchange, one line per message, `-->` sent and `<--` received. The `data`
 
 ### Token cost
 
-What the server adds to a Claude Code session, measured on this build on 2026-10-04 with Claude Code 2.1.289 and `claude-opus-5-5`: input tokens of the first API call with karagoz registered, minus the same call with no MCP server.
+What the server adds to a Claude Code session, measured on 2026-10-04 with Claude Code 2.1.289 and `claude-opus-5-5`: input tokens of the first API call with karagoz registered, minus the same call with no MCP server.
 
 | Case | Tokens |
 | --- | --- |
@@ -935,7 +951,7 @@ npm run typecheck
 npm run lint        # oxlint and the Prettier check; npm run format fixes formatting
 ```
 
-Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh`, `smoke/2.3-ui-tree-physical.sh`, `smoke/2.4-input-physical.sh`, `smoke/2.5-app-lifecycle-physical.sh` and `smoke/2.6-logs-physical.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, and 2.2, 2.3, 2.4, 2.5 and 2.6 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
+Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh`, `smoke/2.3-ui-tree-physical.sh`, `smoke/2.4-input-physical.sh`, `smoke/2.5-app-lifecycle-physical.sh`, `smoke/2.6-logs-physical.sh` and `smoke/3.1-devices-ios.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, 3.1 uses fake `adb` and `simctl` scripts and reads the real simulator list, macOS only (it prints `SKIP` elsewhere), and 2.2, 2.3, 2.4, 2.5 and 2.6 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
 
 ```sh
 sh smoke/1.4-input.sh

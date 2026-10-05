@@ -3,7 +3,7 @@ import { ProtocolError, ProtocolErrorCode, Server, type CallToolResult, type Too
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import pkg from '../package.json' with { type: 'json' };
 import { check, commands, envelope } from './commands.js';
-import { cancellation } from './drivers/android/adb.js';
+import { cancellation } from './cancellation.js';
 import { KaragozError } from './errors.js';
 
 const INSTRUCTIONS =
@@ -15,7 +15,7 @@ const TOOLS: Tool[] = [
   {
     name: 'devices',
     title: 'List devices',
-    description: 'List the Android devices and emulators adb sees.',
+    description: 'List Android devices and emulators, and running iOS simulators.',
     inputSchema: { type: 'object', properties: {} },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },

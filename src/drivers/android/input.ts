@@ -1,5 +1,6 @@
 import { KaragozError } from '../../errors.js';
-import { adb, cancellation, TIMEOUT_MS } from './adb.js';
+import { cancellation } from '../../cancellation.js';
+import { adb, TIMEOUT_MS } from './adb.js';
 import { resolveTarget } from './devices.js';
 import { readTree, type UiNode } from './ui-tree.js';
 

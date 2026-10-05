@@ -27,7 +27,14 @@ message_of() { node -e '
 # Runs a command against the second server. USB, emulator and mDNS scanning stay off even if a call has to restart
 # it, so it never claims a phone the default server holds or auto-connects one paired over Wi-Fi. ANDROID_SERIAL
 # from the calling shell is cleared: it would turn the NO_DEVICE step into DEVICE_NOT_FOUND.
-on_test() { ANDROID_ADB_SERVER_PORT=$port ADB_USB=0 ADB_EMU=0 ADB_MDNS=0 ANDROID_SERIAL= "$@"; }
+on_test() { ANDROID_ADB_SERVER_PORT=$port ADB_USB=0 ADB_EMU=0 ADB_MDNS=0 ANDROID_SERIAL= DEVELOPER_DIR="$tmp/dev" "$@"; }
+# A simctl that lists no simulator, so the exact devices lines below hold with one running on the Mac (smoke 3.1).
+mkdir -p "$tmp/dev/usr/bin"
+cat > "$tmp/dev/usr/bin/simctl" <<'EOF'
+#!/bin/sh
+echo '{"devices":{}}'
+EOF
+chmod +x "$tmp/dev/usr/bin/simctl"
 
 # 1. A ready, named emulator on the default server. Its adb port is the console port in emulator-<N> plus one.
 list=$(node dist/cli.js devices) || { echo "FAIL: devices exited non-zero: $list"; exit 1; }
@@ -79,7 +86,7 @@ case "$*" in
 esac
 EOF
 chmod +x "$tmp/fake/adb"
-out=$(env -i HOME="$tmp" PATH="$tmp/fake" "$(command -v node)" dist/cli.js devices) \
+out=$(env -i HOME="$tmp" PATH="$tmp/fake" DEVELOPER_DIR="$tmp/dev" "$(command -v node)" dist/cli.js devices) \
   || { echo "FAIL: devices with the fake adb exited non-zero: $out"; exit 1; }
 want='{"devices":[{"id":"127.0.0.1:5557","platform":"android","kind":"emulator","state":"device","name":"Old_API_28"}]}'
 [ "$out" = "$want" ] || { echo "FAIL: old image listed as $out, expected $want"; exit 1; }
