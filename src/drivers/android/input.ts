@@ -1,7 +1,7 @@
 import { KaragozError } from '../../errors.js';
 import { cancellation } from '../../cancellation.js';
 import { adb, TIMEOUT_MS } from './adb.js';
-import { resolveTarget } from './devices.js';
+import { androidTarget } from '../../devices.js';
 import { readTree, type UiNode } from './ui-tree.js';
 
 // KeyEvent.java at android17-release (frameworks/base 94b4c163b7dfe5ce3607f7bb8456f9573f7de57d): the 341 KEYCODE_ names
@@ -60,7 +60,7 @@ export async function key(device: string | undefined, value: string) {
       `unknown key '${value}'; use a KeyEvent name such as HOME, BACK or ENTER, or a code from 1 to ${KEYS.length - 1}`,
     );
   }
-  const id = await resolveTarget(device);
+  const id = await androidTarget(device, 'key');
   // The code, not the name: the device matches names case-sensitively.
   await send(id, ['keyevent', String(code)]);
   return { device: id, key: `KEYCODE_${name}`, code };
@@ -178,7 +178,7 @@ async function locate(id: string, selector: Selector, timeout: number) {
 }
 
 export async function tap(device: string | undefined, target: Target, duration: number | undefined, timeout: number) {
-  const id = await resolveTarget(device);
+  const id = await androidTarget(device, 'tap');
   if (target.kind === 'point') return press(id, target.x, target.y, duration);
   const { node, x, y } = await locate(id, target, timeout);
   const element = { ...node };
@@ -194,7 +194,7 @@ export async function swipe(
   y2: number,
   duration = SWIPE_MS,
 ) {
-  const id = await resolveTarget(device);
+  const id = await androidTarget(device, 'swipe');
   await send(id, ['swipe', ...[x1, y1, x2, y2, duration].map(String)], TIMEOUT_MS + duration);
   return { device: id, x1, y1, x2, y2, duration };
 }
@@ -213,7 +213,7 @@ export async function text(device: string | undefined, value: string) {
       `cannot type ${named.join(', ')}: Android's input text types only printable ASCII, newline, tab, ç, Ç and ß; nothing was typed`,
     );
   }
-  const id = await resolveTarget(device);
+  const id = await androidTarget(device, 'text');
   let typed = 0;
   // input turns every %s into a space within one call, so a part ends at each % followed by s.
   for (const part of value.split(/(?<=%)(?=s)/)) {

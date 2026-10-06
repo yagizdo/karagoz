@@ -2,7 +2,7 @@ import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { KaragozError } from '../../errors.js';
 import { adb } from './adb.js';
-import { resolveTarget } from './devices.js';
+import { androidTarget } from '../../devices.js';
 
 // am start -W has no bound of its own; Android gives up after 10 s for a process to attach and 10 s idle after
 // resume (K28).
@@ -47,7 +47,7 @@ export async function install(device: string | undefined, apk: string) {
   const info = await stat(path).catch(() => undefined);
   if (!info) throw new KaragozError('INVALID_ARGS', `no file at '${path}'`);
   if (!info.isFile()) throw new KaragozError('INVALID_ARGS', `'${path}' is not a file`);
-  const id = await resolveTarget(device);
+  const id = await androidTarget(device, 'install');
   const timeout = INSTALL_BASE_MS + Math.ceil(info.size / 1_000_000) * 1000;
   try {
     // --no-incremental: next to an .idsig adb installs incrementally through an `adb inc-server` that keeps stderr
@@ -73,7 +73,7 @@ export async function install(device: string | undefined, apk: string) {
 
 export async function launch(device: string | undefined, pkg: string) {
   checkPackage(pkg);
-  const id = await resolveTarget(device);
+  const id = await androidTarget(device, 'launch');
   // getLaunchIntentForPackage's rule: MAIN+INFO first, then MAIN+LAUNCHER, the first result (K28).
   for (const category of ['android.intent.category.INFO', 'android.intent.category.LAUNCHER']) {
     const component = await firstActivity(id, pkg, category);
@@ -96,7 +96,7 @@ export async function launch(device: string | undefined, pkg: string) {
 
 export async function terminate(device: string | undefined, pkg: string) {
   checkPackage(pkg);
-  const id = await resolveTarget(device);
+  const id = await androidTarget(device, 'terminate');
   await checkInstalled(id, pkg);
   const out = (await adb(['-s', id, 'exec-out', 'am', 'force-stop', pkg])).trim();
   if (out) throw new KaragozError('ADB_FAILED', out);
@@ -105,7 +105,7 @@ export async function terminate(device: string | undefined, pkg: string) {
 
 export async function uninstall(device: string | undefined, pkg: string) {
   checkPackage(pkg);
-  const id = await resolveTarget(device);
+  const id = await androidTarget(device, 'uninstall');
   await checkInstalled(id, pkg);
   // What adb uninstall runs. A missing package would say DELETE_FAILED_INTERNAL_ERROR, as a protected one does (K28).
   const out = (await adb(['-s', id, 'exec-out', 'cmd', 'package', 'uninstall', pkg])).trim();

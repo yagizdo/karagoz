@@ -25,6 +25,7 @@ export type ErrorCode =
   | 'UNINSTALL_FAILED'
   | 'APP_NOT_FOUND'
   | 'APP_NOT_LAUNCHABLE'
+  | 'NOT_SUPPORTED'
   | 'INTERNAL';
 
 export class KaragozError extends Error {

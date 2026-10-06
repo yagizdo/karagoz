@@ -1,15 +1,6 @@
-import { lstat, mkdir, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
 import { KaragozError } from '../../errors.js';
+import { pngSize } from '../../png.js';
 import { adb, adbBytes } from './adb.js';
-import { resolveTarget } from './devices.js';
-
-// PNG layout (https://www.w3.org/TR/png/): the 8-byte signature, then the IHDR chunk header (length 13, type IHDR)
-// with width and height as big-endian uint32 at bytes 16 and 20, and the 12-byte IEND chunk last.
-const SIGNATURE = Buffer.from('89504e470d0a1a0a', 'hex');
-const IHDR = Buffer.from('0000000d49484452', 'hex');
-const IEND = Buffer.from('0000000049454e44ae426082', 'hex');
 
 // The Android counterpart of iOS safeAreaInsets: systemBars() | displayCutout() (K23). The IME and the gesture
 // areas are left out, as iOS leaves out the keyboard.
@@ -118,13 +109,7 @@ function parseDisplay(text: string) {
   return { width, height, rotation: Number(rotation[1]) * 90, safeArea };
 }
 
-export async function screenshot(device: string | undefined, out: string | undefined) {
-  const target = out === undefined ? undefined : resolve(out);
-  // A model picks this path over MCP; only a .png gets overwritten (K22).
-  if (target !== undefined && !target.toLowerCase().endsWith('.png')) {
-    throw new KaragozError('INVALID_ARGS', `'${target}' is not a .png file`);
-  }
-  const id = await resolveTarget(device);
+export async function capture(id: string) {
   // The metadata calls take ~65 ms each against a ~700 ms capture (measured), so in parallel they add nothing.
   const [png, density, dump] = await Promise.all([
     adbBytes(['-s', id, 'exec-out', 'screencap', '-p']),
@@ -136,56 +121,19 @@ export async function screenshot(device: string | undefined, out: string | undef
   // ponytail: with several displays screencap prints its warning lines ahead of the PNG, and this check fails on
   // purpose, since which display it picks "is not guaranteed to be consistent across captures"; the metadata is
   // read from display 0 as well. The limit lifts when a multi-display device comes into scope and -d is added.
-  const whole =
-    png.subarray(0, 8).equals(SIGNATURE) && png.subarray(8, 16).equals(IHDR) && png.subarray(-12).equals(IEND);
-  if (!whole) {
+  const pixels = pngSize(png);
+  if (!pixels) {
     throw new KaragozError('CAPTURE_FAILED', png.toString('utf8').trim().slice(0, 300) || 'screencap returned no data');
   }
-  const width = png.readUInt32BE(16);
-  const height = png.readUInt32BE(20);
   const scale = parseDensity(density) / 160;
   const display = parseDisplay(dump);
   // The metadata and the capture run at the same time: a rotation between them would pair a landscape PNG with
   // portrait insets.
-  if (display.width !== width || display.height !== height) {
+  if (display.width !== pixels.width || display.height !== pixels.height) {
     throw new KaragozError(
       'CAPTURE_FAILED',
-      `display is ${display.width}x${display.height} but the screenshot is ${width}x${height}; the screen rotated or resized during capture`,
+      `display is ${display.width}x${display.height} but the screenshot is ${pixels.width}x${pixels.height}; the screen rotated or resized during capture`,
     );
   }
-  // ':' is invalid in Windows file names, and `adb connect` serials contain it (127.0.0.1:5555).
-  const safeId = id.replace(/[^A-Za-z0-9._-]/g, '_');
-  const stamp = new Date().toISOString().replace(/[-:.]/g, '');
-  const path = target ?? join(tmpdir(), 'karagoz', `${safeId}-${stamp}.png`);
-  try {
-    const dir = dirname(path);
-    if (target === undefined) {
-      // On Linux tmpdir() is the shared /tmp: another user could create karagoz/ first, or plant a symlink at the
-      // predictable file name. The directory must be the caller's own, and the write refuses anything already at
-      // the path. --out is left alone, the caller picked it.
-      // ponytail: two captures of one device in the same millisecond collide, and the second gets WRITE_FAILED.
-      await mkdir(dir, { recursive: true, mode: 0o700 });
-      const info = await lstat(dir);
-      if (!info.isDirectory() || (process.getuid && info.uid !== process.getuid())) {
-        throw new Error(`${dir} is not a directory owned by the current user; pass --out`);
-      }
-      await writeFile(path, png, { flag: 'wx', mode: 0o600 });
-    } else {
-      await mkdir(dir, { recursive: true });
-      await writeFile(path, png);
-    }
-  } catch (err) {
-    if (!(err instanceof Error)) throw err;
-    throw new KaragozError('WRITE_FAILED', err.message);
-  }
-  return {
-    path,
-    device: id,
-    pixels: { width, height },
-    // Not rounded: derived from pixels and scale, and a rounded copy would disagree with them.
-    logical: { width: width / scale, height: height / scale },
-    scale,
-    safeArea: display.safeArea,
-    rotation: display.rotation,
-  };
+  return { png, pixels, scale, safeArea: display.safeArea, rotation: display.rotation };
 }
