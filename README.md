@@ -42,7 +42,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | Command | Android emulator | Android device | iOS simulator | iOS device |
 | --- | --- | --- | --- | --- |
 | [`devices`](#devices) | done | done | done | planned |
-| [`screenshot`](#screenshot) | done | done | planned | planned |
+| [`screenshot`](#screenshot) | done | done | done | planned |
 | [`ui-tree`](#ui-tree) | done | done | planned | planned |
 | [`tap`](#tap) | done | done | planned | planned |
 | [`swipe`](#swipe) | done | done | planned | planned |
@@ -56,7 +56,7 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 | [`doctor`](#doctor) | done | done | planned | planned |
 | [MCP server](#mcp-server) | done | done | | |
 
-"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. In the iOS simulator column it means `smoke/3.1-devices-ios.sh` passes on macOS. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator and Claude Code and Codex called its tools; in the Android device column it means its tools returned results from a phone over USB. Windows and Linux have not been run.
+"Done" means tested against a live emulator: macOS, an API 36 image (Android 16), 1080x2400 at 420 dpi. In the iOS simulator column it means the step's smoke passes on macOS: `smoke/3.1-devices-ios.sh` for `devices`, `smoke/3.2-screenshot-ios.sh` for `screenshot`. `devices`, `screenshot` and `ui-tree` were tested on a physical Samsung phone (Android 14) over USB, and `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` on an Infinix phone (Android 12) over USB. No other command has been run on one yet. `doctor` touches no device; its row means tested on the same Mac with fake and real `adb` binaries. For the MCP server, done means `smoke/M-mcp.sh` passes against the live emulator and Claude Code and Codex called its tools; in the Android device column it means its tools returned results from a phone over USB. Windows and Linux have not been run.
 
 ## Requirements
 
@@ -73,10 +73,10 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
   {"error":{"code":"ADB_NOT_FOUND","message":"adb not found (tried ..., PATH). Install platform-tools (brew install --cask android-platform-tools, or download https://developer.android.com/tools/releases/platform-tools and add it to PATH) or set ANDROID_HOME to your Android SDK."}}
   ```
 
-- **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs`, a phone with USB debugging on, in state `device`. karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
+- **A running emulator** (`emulator -avd <name>`), or for `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs`, a phone with USB debugging on, in state `device`, or for `devices` and `screenshot` on macOS, a booted iOS simulator (`open -a Simulator`). karagoz installs nothing on a device by itself; `install` installs only the APK you pass it. A phone that adb cannot see is missing from the list: on Windows without the phone maker's USB driver, on a Mac laptop where "Allow accessory to connect" was refused, or in fastboot mode.
 - For `smoke/1.5-app-lifecycle.sh`, and for `smoke/2.5-app-lifecycle-physical.sh` when a phone is attached: a JDK and Android SDK build-tools with one platform. Both smokes build their own test APK, `dev.karagoz.smoke`, and remove it at the end. See [Development](#development).
 - For `ui-tree` and `tap --text` / `--id`: the screen is on, and no other UiAutomation client is connected (Appium, Maestro, `uiautomator events`). For input to reach apps, the screen is also unlocked: on a lock screen `text` and `key` type into the PIN field, and a wrong PIN counts as a failed unlock attempt; with the screen off, taps are dropped and keys still arrive. Both exit `0`.
-- **Xcode, opened once**, for iOS simulators in `devices` (macOS only). karagoz runs CoreSimulator's own `simctl` (`/Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl`), or `$DEVELOPER_DIR/usr/bin/simctl` when `DEVELOPER_DIR` is set. The Command Line Tools alone have no `simctl`.
+- **Xcode, opened once**, for iOS simulators in `devices` and `screenshot` (macOS only). karagoz runs CoreSimulator's own `simctl` (`/Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl`), or `$DEVELOPER_DIR/usr/bin/simctl` when `DEVELOPER_DIR` is set. The Command Line Tools alone have no `simctl`. On macOS every command that targets a device runs it too, to list simulators ([Device selection](#device-selection)).
 
 ## Install
 
@@ -117,29 +117,33 @@ $ karagoz screenshot --out home.png
 Every command except `devices` works on one device, picked in this order:
 
 1. `--device <id>`
-2. the `ANDROID_SERIAL` environment variable (ignored when `--device` is given; empty counts as unset)
-3. the only listed device
+2. the `KARAGOZ_DEVICE` environment variable
+3. the `ANDROID_SERIAL` environment variable
+4. the only listed device
 
-The value is matched against adb serials first (`emulator-5554`), exactly. If no serial matches, it is matched against every `name` that [`devices`](#devices) prints for an Android device: an emulator's AVD name (`Medium_Phone_API_36.1`) or a phone's model (`SM-S908N`), exactly and case-sensitively.
+A variable is ignored when anything above it is given; an empty one counts as unset. `KARAGOZ_DEVICE` names a device on either platform.
+
+The value is matched against every listed id first, exactly: adb serials (`emulator-5554`) and, on macOS, the UDIDs of booted simulators. If no id matches, it is matched against every `name` that [`devices`](#devices) prints: an emulator's AVD name (`Medium_Phone_API_36.1`), a phone's model (`SM-S908N`) or a simulator's name (`iPhone 17 Pro`), exactly and case-sensitively. A name matched on both platforms is ambiguous; neither wins.
 
 | Situation | Error |
 | --- | --- |
 | A value is given and nothing matches | `DEVICE_NOT_FOUND`, listing what is connected |
 | No value, nothing connected | `NO_DEVICE` |
 | No value and two or more devices listed (in any state), or a name that matches two entries: the same AVD listed as `emulator-5554` and `127.0.0.1:5555`, or two phones of the same model | `DEVICE_AMBIGUOUS` |
-| The picked device is not in state `device` (`offline`, `unauthorized`, ...) | `DEVICE_NOT_READY` |
+| The picked device is not in state `device` (`offline`, `unauthorized`, ...), or a simulator not `Booted` (`Booting`, `Shutting Down`) | `DEVICE_NOT_READY` |
+| The picked device is an iOS simulator and the command does not run there yet: every command but `devices`, `screenshot` and `doctor` | `NOT_SUPPORTED` |
 
-iOS simulators that `devices` lists cannot be picked yet, and are not counted for 3. or for `DEVICE_AMBIGUOUS`.
+karagoz never guesses between devices. There is no config file.
 
-karagoz never guesses between devices. There is no config file and no other environment variable.
+On macOS every command that targets a device lists booted simulators next to adb's devices, in parallel. A missing `adb` or `simctl` means that platform has no devices. Any other failure of one listing stops the command, unless the value is an id the other platform listed: a hung simulator service makes a bare call fail with `SIMCTL_TIMEOUT` after 30 s. When nothing is listed and `adb` is missing, the error is `ADB_NOT_FOUND`.
 
 A phone connected over Wi-Fi as well as USB is listed twice, once per serial, and its model matches both: pick it by serial then. Quote a `--device` value that contains spaces, as some mDNS serials do.
 
 ### Coordinates
 
-`screenshot` pixels, `ui-tree` bounds and the `tap` / `swipe` coordinates share one space: physical pixels of the current screen orientation, origin top left. A node's `bounds` of `[581,1905,754,2100]` can be tapped at its center, `(667.5, 2002.5)`, and that point is the same pixel in the screenshot. Decimals are allowed.
+`screenshot` pixels, `ui-tree` bounds and the `tap` / `swipe` coordinates share one space: physical pixels of the current screen orientation, origin top left. A node's `bounds` of `[581,1905,754,2100]` can be tapped at its center, `(667.5, 2002.5)`, and that point is the same pixel in the screenshot. Decimals are allowed. On an iOS simulator the screenshot is always the panel in portrait, whatever the interface orientation.
 
-`screenshot` reports `scale` (physical pixels per density-independent pixel) and `logical` size so a caller can convert to dp.
+`screenshot` reports `scale` (physical pixels per density-independent pixel on Android, per point on iOS) and `logical` size so a caller can convert to dp or points.
 
 ### Accessibility tree first
 
@@ -153,7 +157,7 @@ Every command prints exactly one line of JSON on stdout and exits, except `mcp`,
 - **Failure:** an error object, exit code `1`:
 
   ```json
-  {"error":{"code":"DEVICE_NOT_FOUND","message":"device 'nosuch' from --device matches no serial or device name. Listed: emulator-5554 (Medium_Phone_API_36.1)."}}
+  {"error":{"code":"DEVICE_NOT_FOUND","message":"device 'nosuch' from --device matches no device id or name. Listed: emulator-5554 (Medium_Phone_API_36.1)."}}
   ```
 
   The same message goes to stderr as `karagoz: <message>`. It can span more than one line when it quotes adb or Node output; the stdout line never does.
@@ -193,13 +197,14 @@ The set is closed. Any failure without a code of its own is reported as `INTERNA
 | `ADB_NOT_FOUND` | No `adb` found. See [Requirements](#requirements). | all that reach adb, except `doctor`, which reports these in its output; `devices` reports them in `errors` when the other platform could be listed |
 | `ADB_TIMEOUT` | adb did not answer in time: 10 s per call, 20 s for a `ui-tree` read, 10 s plus the duration for a long press or swipe, 30 s plus 1 s per started MB for `install`, 30 s for the start in `launch`. The message suggests `adb kill-server`; for `ui-tree` the cause is more often a stuck dump, and for `install` an install prompt on the phone, which the message names first. | all that reach adb, except `doctor`, which reports these in its output; `devices` reports them in `errors` when the other platform could be listed |
 | `ADB_FAILED` | adb exited with an error. The message is adb's stderr, or Node's error when adb printed nothing. For `launch`, `terminate` and `uninstall` it can also be the error the device command printed. For `logs`, logcat's own error text or output that is not whole log records. A device that disconnects mid-command ends here. | all that reach adb, except `doctor`, which reports these in its output; `devices` reports them in `errors` when the other platform could be listed |
-| `SIMCTL_NOT_FOUND` | No `simctl` found: Xcode is missing or was never opened, or `DEVELOPER_DIR` points somewhere without one. See [Requirements](#requirements). | `devices`, inside `errors` |
-| `SIMCTL_TIMEOUT` | simctl did not answer in 30 s. | `devices`, inside `errors` |
-| `SIMCTL_FAILED` | simctl exited with an error, or printed something that is not its device list. The message is simctl's stderr, or Node's error when simctl printed nothing; for unexpected output, `unexpected simctl output:` and its first line. | `devices`, inside `errors` |
-| `NO_DEVICE` | No device connected and none named. | all but `devices` and `doctor` |
+| `SIMCTL_NOT_FOUND` | No `simctl` found: Xcode is missing or was never opened, or `DEVELOPER_DIR` points somewhere without one. See [Requirements](#requirements). | `devices`, inside `errors`; `screenshot` on a simulator; on macOS, every command that targets a device (listing, see [Device selection](#device-selection)) |
+| `SIMCTL_TIMEOUT` | simctl did not answer in 30 s. | `devices`, inside `errors`; `screenshot` on a simulator; on macOS, every command that targets a device (listing, see [Device selection](#device-selection)) |
+| `SIMCTL_FAILED` | simctl exited with an error, or printed something that is not its device list. The message is simctl's stderr, or Node's error when simctl printed nothing; for unexpected output, `unexpected simctl output:` and its first line. | `devices`, inside `errors`; `screenshot` on a simulator; on macOS, every command that targets a device (listing, see [Device selection](#device-selection)) |
+| `NO_DEVICE` | No device connected and none named. On macOS the message also names booting a simulator. | all but `devices` and `doctor` |
 | `DEVICE_NOT_FOUND` | The named device is not connected. | all but `devices` and `doctor` |
 | `DEVICE_AMBIGUOUS` | More than one device and none named, or a name that matches more than one. | all but `devices` and `doctor` |
-| `DEVICE_NOT_READY` | The device is `offline`, `unauthorized` or similar. | all but `devices` and `doctor` |
+| `DEVICE_NOT_READY` | The device is `offline`, `unauthorized` or similar, or the simulator is `Booting` or `Shutting Down`. | all but `devices` and `doctor` |
+| `NOT_SUPPORTED` | The device is an iOS simulator and the command does not run there yet: `'ui-tree' does not run on iOS simulators yet`. Argument checks come first. | all but `devices`, `screenshot` and `doctor` |
 | `CAPTURE_FAILED` | The screen could not be read: bad screenshot data, missing display info, or a uiautomator failure. The message says which. | `screenshot`, `ui-tree`, `tap --text/--id` |
 | `AUTOMATION_BUSY` | Another UiAutomation client holds the device. | `ui-tree`, `tap --text/--id` |
 | `WRITE_FAILED` | The screenshot file could not be written. | `screenshot` |
@@ -261,10 +266,10 @@ An iOS simulator running next to the emulator (macOS):
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `id` | string | The adb serial, or the simulator's UDID. Pass an adb serial to `--device`. |
+| `id` | string | The adb serial, or the simulator's UDID. Pass it to `--device`. |
 | `platform` | `"android"` or `"ios"` | |
 | `kind` | `"emulator"`, `"physical"` or `"simulator"` | `simulator` for iOS simulators. `emulator` when the id is `emulator-<port>`, or when the device reports `ro.boot.qemu` or `ro.kernel.qemu` as `1`, or `ro.hardware` as `ranchu` or `goldfish` (an emulator attached with `adb connect`). Genymotion, and other ids not in state `device`, read as `physical`. |
-| `state` | string | adb's state, unchanged: `device`, `offline`, `unauthorized`, ... Only `device` can be used. For simulators, simctl's state: `Booted`, `Booting`, `Shutting Down`; only `Booted` will be usable. |
+| `state` | string | adb's state, unchanged: `device`, `offline`, `unauthorized`, ... Only `device` can be used. For simulators, simctl's state: `Booted`, `Booting`, `Shutting Down`; only `Booted` is usable. |
 | `name` | string or `null` | The AVD name for emulators, the model (`ro.product.model`) for phones, the simulator's name for simulators. `null` when the device does not answer, or when it is not in state `device` and its id is not `emulator-<port>`. |
 
 No devices is not an error: `{"devices":[]}`, exit `0`. Android devices come first in adb's order, then simulators in simctl's order.
@@ -288,12 +293,12 @@ If adb or simctl is missing, fails or hangs, the other platform is still listed,
 karagoz screenshot [--out <path>] [--device <id>]
 ```
 
-Saves the screen as a PNG at full device resolution, never scaled, and prints where it went with the metadata needed to measure against it.
+Saves the screen as a PNG at full device resolution, never scaled, and prints where it went with the metadata needed to measure against it. Runs on an Android emulator, an Android device and, on macOS, a booted iOS simulator.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--out <path>` | a new file under the temp directory | Where to write the PNG; must end in `.png`. |
-| `--device <id>` | see [Device selection](#device-selection) | |
+| `--device <id>` | see [Device selection](#device-selection) | An adb serial, a simulator's UDID, or a name. |
 
 **Output**
 
@@ -301,32 +306,41 @@ Saves the screen as a PNG at full device resolution, never scaled, and prints wh
 {"path":"/Users/me/home.png","device":"emulator-5554","pixels":{"width":1080,"height":2400},"logical":{"width":411.42857142857144,"height":914.2857142857143},"scale":2.625,"safeArea":{"top":63,"right":0,"bottom":63,"left":0},"rotation":0}
 ```
 
+An iPhone 17 Pro simulator (macOS), without `--out`:
+
+```json
+{"path":"/var/folders/.../T/karagoz/4E70BFCA-5FC6-49B5-92EC-48E265B2D50F-20261006T182312310Z.png","device":"4E70BFCA-5FC6-49B5-92EC-48E265B2D50F","pixels":{"width":1206,"height":2622},"logical":{"width":402,"height":874},"scale":3,"safeArea":null,"rotation":null}
+```
+
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `path` | string | Absolute path of the PNG. |
-| `device` | string | Serial of the device captured. |
+| `device` | string | The adb serial or the simulator's UDID. |
 | `pixels` | `{width, height}` | Size of the PNG, read from the file itself. |
 | `logical` | `{width, height}` | `pixels / scale`, not rounded. |
-| `scale` | number | Density / 160, using the override density if one is set (`adb shell wm density`). |
-| `safeArea` | `{top, right, bottom, left}` | Pixels of this PNG covered by the status bar, navigation bar, caption bar or display cutout. A hidden bar counts as 0. The keyboard and gesture areas are not included. |
-| `rotation` | `0`, `90`, `180` or `270` | Screen rotation in degrees. |
+| `scale` | number | Android: density / 160, using the override density if one is set (`adb shell wm density`). iOS: the simulator's `SIMULATOR_MAINSCREEN_SCALE`, except `2.88` (1080 / 375) for a 1080x2340 PNG (iPhone 12 mini, 13 mini): the simulator reports 3 there, but apps lay out 375 points wide. |
+| `safeArea` | `{top, right, bottom, left}` or `null` | Pixels of this PNG covered by the status bar, navigation bar, caption bar or display cutout. A hidden bar counts as 0. The keyboard and gesture areas are not included. `null` on iOS: only the app itself can read its safe area, and the simulator exposes no other source. |
+| `rotation` | `0`, `90`, `180`, `270` or `null` | Screen rotation in degrees. `null` on iOS: the interface orientation cannot be read from outside the simulator. |
+
+On iOS the PNG is the simulator's panel in portrait, exactly as simctl encoded it; karagoz does not rotate or re-encode it. A landscape app's UI is drawn sideways in it. The corners are square, not rounded, and the Dynamic Island area is black pixels.
 
 **File location**
 
-- Without `--out`: `<temp dir>/karagoz/<device id>-<UTC timestamp>.png`, for example `/var/folders/.../T/karagoz/emulator-5554-20260926T101530123Z.png`. The temp directory follows `TMPDIR`. The `karagoz` directory is created private to your user (mode 0700) and must be a real directory you own; the file is created with mode 0600 and never overwrites. Characters other than letters, digits, `.`, `_` and `-` in the device id become `_`.
+- Without `--out`: `<temp dir>/karagoz/<device id>-<UTC timestamp>.png`, where the device id is a UDID on iOS, for example `/var/folders/.../T/karagoz/emulator-5554-20260926T101530123Z.png`. The temp directory follows `TMPDIR`. The `karagoz` directory is created private to your user (mode 0700) and must be a real directory you own; the file is created with mode 0600 and never overwrites. Characters other than letters, digits, `.`, `_` and `-` in the device id become `_`.
 - With `--out`: the path must end in `.png`, in any case, or the command fails with `INVALID_ARGS` before any device call. Relative paths resolve against the current directory, missing parent directories are created, and an existing `.png` is overwritten.
-- karagoz never deletes screenshots. One 1080x2400 capture is about 1.4 MB.
+- karagoz never deletes screenshots. One 1080x2400 capture is about 1.4 MB; one 1206x2622 simulator capture about 2.9 MB.
 
 **Errors**
 
-- `CAPTURE_FAILED`: screencap returned something other than a whole PNG (its message is included); the density, display size, rotation or insets could not be read (`cannot read <value> from <command>`); or the screen rotated or resized during the capture (`display is WxH but the screenshot is WxH`). With more than one display, screencap's warning comes back as `CAPTURE_FAILED`.
+- `CAPTURE_FAILED`: screencap returned something other than a whole PNG (its message is included); the density, display size, rotation or insets could not be read (`cannot read <value> from <command>`); or the screen rotated or resized during the capture (`display is WxH but the screenshot is WxH`). With more than one display, screencap's warning comes back as `CAPTURE_FAILED`. On iOS: simctl printed something other than a whole PNG (its text, or `simctl returned no image data`), or the scale could not be read (`cannot read scale from 'simctl getenv' (got '<value>')`).
+- `SIMCTL_FAILED`: on iOS the capture failed; the message is simctl's text. The first capture right after a boot can fail with `Error creating the image`. `SIMCTL_TIMEOUT` after 30 s, `SIMCTL_NOT_FOUND` without Xcode.
 - `WRITE_FAILED`: the file could not be written, or the default directory is not yours (`pass --out`). Two captures of one device in the same millisecond without `--out`: the second fails.
 - `INVALID_ARGS`: `'<absolute path>' is not a .png file` for an `--out` that does not end in `.png`, before any device call.
-- Plus the [device selection](#device-selection) errors, the other `INVALID_ARGS` cases and the adb errors.
+- Plus the [device selection](#device-selection) errors (`NOT_SUPPORTED` excepted), the other `INVALID_ARGS` cases and the adb errors.
 
 **Notes**
 
-- About 1 s on the emulator, about 0.5 s on a phone over USB.
+- About 1 s on the emulator, about 0.5 s on a phone over USB, about 0.6 s on a simulator.
 - A screen that is off, or an app that sets `FLAG_SECURE`, gives a black PNG and exit `0`. Some Android 14 builds refuse the capture instead while a `FLAG_SECURE` window or the lock screen's PIN pad is showing: `CAPTURE_FAILED` with `screencap returned no data`.
 - If the density changes during a capture, `scale` and `safeArea` can disagree for that one capture.
 
@@ -862,7 +876,7 @@ or from the command line: `code --add-mcp '{"name":"karagoz","command":"node","a
 [mcp_servers.karagoz]
 command = "node"
 args = ["/abs/path/karagoz/dist/cli.js", "mcp"]
-env_vars = ["ANDROID_HOME", "ANDROID_SDK_ROOT", "ANDROID_SERIAL"]
+env_vars = ["ANDROID_HOME", "ANDROID_SDK_ROOT", "KARAGOZ_DEVICE", "ANDROID_SERIAL"]
 tool_timeout_sec = 600
 ```
 
@@ -895,7 +909,7 @@ Codex passes a server only a short list of environment variables; `env_vars` for
 - `null` counts as not given. An argument the tool does not take is refused: `'devices' does not take the option '--foo'`.
 - `inline` exists only here: `true` or `false`, else `INVALID_ARGS` `inline must be true or false (got 'yes')`.
 - `out` and `apk` should be absolute. A relative path resolves against the server's working directory, which the client picks.
-- `device` picks one of several devices. Without it the server uses `ANDROID_SERIAL` from its own environment, then the only device ([Device selection](#device-selection)). Codex passes `ANDROID_SERIAL` only through `env_vars`.
+- `device` picks one of several devices. Without it the server uses `KARAGOZ_DEVICE`, then `ANDROID_SERIAL` from its own environment, then the only device ([Device selection](#device-selection)). Codex passes these variables only through `env_vars`.
 
 ### Results
 
@@ -951,7 +965,7 @@ npm run typecheck
 npm run lint        # oxlint and the Prettier check; npm run format fixes formatting
 ```
 
-Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh`, `smoke/2.3-ui-tree-physical.sh`, `smoke/2.4-input-physical.sh`, `smoke/2.5-app-lifecycle-physical.sh`, `smoke/2.6-logs-physical.sh` and `smoke/3.1-devices-ios.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, 3.1 uses fake `adb` and `simctl` scripts and reads the real simulator list, macOS only (it prints `SKIP` elsewhere), and 2.2, 2.3, 2.4, 2.5 and 2.6 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
+Each step has one smoke script in `smoke/`. Each builds first and needs a running emulator, `smoke/M-mcp.sh` included, except `smoke/0b-version.sh`, `smoke/1.7-doctor.sh`, `smoke/2.2-screenshot-physical.sh`, `smoke/2.3-ui-tree-physical.sh`, `smoke/2.4-input-physical.sh`, `smoke/2.5-app-lifecycle-physical.sh`, `smoke/2.6-logs-physical.sh`, `smoke/3.1-devices-ios.sh` and `smoke/3.2-screenshot-ios.sh`: 1.7 uses fake `adb` scripts only and never runs the real adb, 3.1 uses fake `adb` and `simctl` scripts and reads the real simulator list, 3.2 uses fake `adb` and `simctl` scripts and captures a booted simulator when one runs (else its real step prints `SKIP`), both macOS only (they print `SKIP` elsewhere), and 2.2, 2.3, 2.4, 2.5 and 2.6 need a phone only for their phone step, which they skip when none is listed. The header of each script lists its preconditions:
 
 ```sh
 sh smoke/1.4-input.sh

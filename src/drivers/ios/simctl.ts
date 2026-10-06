@@ -10,6 +10,9 @@ const run = promisify(execFile);
 // projects (K32).
 const TIMEOUT_MS = 30_000;
 
+// A home-screen PNG is 2.9 MB (measured); Node's 1 MB default fails above that, as it did for adb (K22).
+const MAX_BUFFER = 64 * 1024 * 1024;
+
 // ponytail: Apple's private path, the binary Xcode's simctl shim execs. Calling it directly skips xcrun's install
 // dialog and the shim's `xcodebuild -runFirstLaunch`, which hangs without a TTY (K32). If Apple moves it, iOS reads
 // as SIMCTL_NOT_FOUND; the fallback is the selected Xcode's shim after checking its EXPECTED_VERSION.
@@ -28,11 +31,22 @@ function binary(): { bin: string; missing: string } {
   };
 }
 
-export async function simctl(args: string[]): Promise<string> {
+// The bytes form exists for the screenshot PNG; simctl() decodes the same result, as adb() does (K32, K33).
+// simctl's stderr on success ("Wrote screenshot to: -") is dropped: it is noise on every capture.
+export async function simctlBytes(args: string[]): Promise<Buffer> {
   const { bin, missing } = binary();
   const signal = cancellation.getStore();
+  // An aborted signal still spawns simctl and kills it a tick later.
+  signal?.throwIfAborted();
   try {
-    return (await run(bin, args, { timeout: TIMEOUT_MS, encoding: 'utf8', ...(signal && { signal }) })).stdout;
+    return (
+      await run(bin, args, {
+        timeout: TIMEOUT_MS,
+        encoding: 'buffer',
+        maxBuffer: MAX_BUFFER,
+        ...(signal && { signal }),
+      })
+    ).stdout;
   } catch (err) {
     if (!(err instanceof Error)) throw err;
     // The SDK sends no response for a cancelled call, so the abort passes through unmapped (K31).
@@ -46,7 +60,11 @@ export async function simctl(args: string[]): Promise<string> {
         `simctl did not answer within ${TIMEOUT_MS / 1000}s. The simulator service may still be starting (the first call after login can take several seconds) or be stuck.`,
       );
     }
-    const stderr = 'stderr' in err && typeof err.stderr === 'string' ? err.stderr.trim() : '';
+    const stderr = 'stderr' in err && Buffer.isBuffer(err.stderr) ? err.stderr.toString('utf8').trim() : '';
     throw new KaragozError('SIMCTL_FAILED', (stderr || err.message).slice(0, 300));
   }
+}
+
+export async function simctl(args: string[]): Promise<string> {
+  return (await simctlBytes(args)).toString('utf8');
 }

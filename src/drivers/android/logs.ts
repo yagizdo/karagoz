@@ -1,7 +1,7 @@
 import { KaragozError } from '../../errors.js';
 import { adb, adbBytes } from './adb.js';
 import { checkPackage } from './app.js';
-import { resolveTarget } from './devices.js';
+import { androidTarget } from '../../devices.js';
 
 // At 100, 46.5% of measured windows passed the ~10k tokens where Codex cuts a result and Claude Code warns; at 30,
 // 0.2% (K29).
@@ -98,7 +98,7 @@ export async function logs(
   lines = LINES,
 ) {
   if (pkg !== undefined) checkPackage(pkg);
-  const id = await resolveTarget(device);
+  const id = await androidTarget(device, 'logs');
   if (pkg === undefined) return { device: id, ...newest(await read(id, since), lines) };
   const uid = await uidOf(id, pkg);
   // A header under 28 bytes has no uid, so its record never matches (K29).

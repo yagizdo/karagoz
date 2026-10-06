@@ -25,9 +25,9 @@ message_of() { node -e '
   try { console.log(out.includes("\n") ? "not-one-line" : JSON.parse(out).error.message) } catch { console.log("not-json") }
 '; }
 # Runs a command against the second server. USB, emulator and mDNS scanning stay off even if a call has to restart
-# it, so it never claims a phone the default server holds or auto-connects one paired over Wi-Fi. ANDROID_SERIAL
-# from the calling shell is cleared: it would turn the NO_DEVICE step into DEVICE_NOT_FOUND.
-on_test() { ANDROID_ADB_SERVER_PORT=$port ADB_USB=0 ADB_EMU=0 ADB_MDNS=0 ANDROID_SERIAL= DEVELOPER_DIR="$tmp/dev" "$@"; }
+# it, so it never claims a phone the default server holds or auto-connects one paired over Wi-Fi. KARAGOZ_DEVICE and
+# ANDROID_SERIAL from the calling shell are cleared: either would turn the NO_DEVICE step into DEVICE_NOT_FOUND.
+on_test() { ANDROID_ADB_SERVER_PORT=$port ADB_USB=0 ADB_EMU=0 ADB_MDNS=0 KARAGOZ_DEVICE= ANDROID_SERIAL= DEVELOPER_DIR="$tmp/dev" "$@"; }
 # A simctl that lists no simulator, so the exact devices lines below hold with one running on the Mac (smoke 3.1).
 mkdir -p "$tmp/dev/usr/bin"
 cat > "$tmp/dev/usr/bin/simctl" <<'EOF'
