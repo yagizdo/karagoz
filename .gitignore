@@ -12,6 +12,7 @@ dist/
 .vscode/
 .codegraph/
 .claude/
+.claude.json
 
 # Local working notes. Design journal, progress tracking, research.
 # Not part of the package.
