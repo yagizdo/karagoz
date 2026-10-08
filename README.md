@@ -2,7 +2,7 @@
 
 Device automation for mobile apps. One tool for four targets: Android emulator, Android physical device, iOS simulator, iOS physical device. It is a CLI, and `karagoz mcp` serves the same commands to an AI agent as an [MCP server](#mcp-server).
 
-> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. `devices` also lists iOS simulators; nothing else is written for iOS yet. Nothing is published to npm. See [Status](#status).
+> **Status: early development.** Twelve commands work on the Android emulator, `devices`, `screenshot`, `ui-tree`, `tap`, `swipe`, `text`, `key`, `install`, `launch`, `terminate`, `uninstall` and `logs` also work on a physical Android device, `doctor` reports the `adb` they use, and the MCP server offers all thirteen to an AI agent. On an iOS simulator, `devices` and `screenshot` work; nothing else is written for iOS yet. Nothing is published to npm. See [Status](#status).
 
 ## Contents
 
@@ -83,8 +83,8 @@ Device automation for mobile apps. One tool for four targets: Android emulator, 
 Not on npm yet. From source:
 
 ```sh
-git clone https://github.com/yagizdo/karagoz.git
-cd karagoz
+git clone https://github.com/yagizdo/karagoz-mcp.git
+cd karagoz-mcp
 npm install
 npm run build          # writes dist/: cli.js and two chunks
 node dist/cli.js devices
@@ -836,14 +836,14 @@ Starts an MCP server for an AI agent on stdin and stdout. It opens no port: the 
 
 ### Registration
 
-karagoz is not on npm yet, so every example runs the built file by its absolute path. After the first release, `npx -y karagoz mcp` replaces `node /abs/path/karagoz/dist/cli.js mcp`.
+karagoz is not on npm yet, so every example runs the built file by its absolute path. After the first release, `npx -y karagoz mcp` replaces `node /abs/path/karagoz-mcp/dist/cli.js mcp`.
 
 Claude Code and Codex were run against this server. The Claude Desktop, Cursor and VS Code entries follow their documentation and were not run.
 
 **Claude Code**
 
 ```sh
-claude mcp add karagoz -- node /abs/path/karagoz/dist/cli.js mcp
+claude mcp add karagoz -- node /abs/path/karagoz-mcp/dist/cli.js mcp
 ```
 
 The server starts in the directory `claude` started in, with the shell's environment. A call still running after 2 minutes becomes a background task.
@@ -851,7 +851,7 @@ The server starts in the directory `claude` started in, with the shell's environ
 **Claude Desktop**, in `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\Claude\claude_desktop_config.json` on Windows; quit and restart Desktop after editing:
 
 ```json
-{"mcpServers":{"karagoz":{"command":"node","args":["/abs/path/karagoz/dist/cli.js","mcp"],"env":{"ANDROID_HOME":"/Users/me/Library/Android/sdk"}}}}
+{"mcpServers":{"karagoz":{"command":"node","args":["/abs/path/karagoz-mcp/dist/cli.js","mcp"],"env":{"ANDROID_HOME":"/Users/me/Library/Android/sdk"}}}}
 ```
 
 Desktop starts servers with part of your environment and possibly `/` as the working directory, so set `ANDROID_HOME` in `env` when `adb` is not on the `PATH` it passes, and use absolute paths.
@@ -859,23 +859,23 @@ Desktop starts servers with part of your environment and possibly `/` as the wor
 **Cursor**, in `.cursor/mcp.json` in the project or `~/.cursor/mcp.json`:
 
 ```json
-{"mcpServers":{"karagoz":{"type":"stdio","command":"node","args":["/abs/path/karagoz/dist/cli.js","mcp"]}}}
+{"mcpServers":{"karagoz":{"type":"stdio","command":"node","args":["/abs/path/karagoz-mcp/dist/cli.js","mcp"]}}}
 ```
 
 **VS Code**, in `.vscode/mcp.json` in the workspace:
 
 ```json
-{"servers":{"karagoz":{"type":"stdio","command":"node","args":["/abs/path/karagoz/dist/cli.js","mcp"]}}}
+{"servers":{"karagoz":{"type":"stdio","command":"node","args":["/abs/path/karagoz-mcp/dist/cli.js","mcp"]}}}
 ```
 
-or from the command line: `code --add-mcp '{"name":"karagoz","command":"node","args":["/abs/path/karagoz/dist/cli.js","mcp"]}'`.
+or from the command line: `code --add-mcp '{"name":"karagoz","command":"node","args":["/abs/path/karagoz-mcp/dist/cli.js","mcp"]}'`.
 
 **Codex**, in `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.karagoz]
 command = "node"
-args = ["/abs/path/karagoz/dist/cli.js", "mcp"]
+args = ["/abs/path/karagoz-mcp/dist/cli.js", "mcp"]
 env_vars = ["ANDROID_HOME", "ANDROID_SDK_ROOT", "KARAGOZ_DEVICE", "ANDROID_SERIAL"]
 tool_timeout_sec = 600
 ```
